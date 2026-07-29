@@ -1,6 +1,6 @@
 import express from 'express';
 import * as jose from 'jose';
-import { listAllowedTables, describeTable, estimateQueryCost, executeReadonlyQuery } from './bigquery';
+import { listAllowedTables, describeTable, estimateQueryCost, executeReadonlyQuery, isTableAllowlisted } from './bigquery';
 
 const getSecretKey = (): Buffer => {
   const key = process.env.MASTER_SECRET_KEY;
@@ -54,7 +54,8 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
   }
 
   for (const table of detectedTables) {
-    if (!allowlist.includes(table)) {
+    const parts = table.split('.');
+    if (!isTableAllowlisted(parts[0], parts[1])) {
       return { safe: false, reason: `Tabel "${table}" tidak terdaftar dalam allowlist.` };
     }
   }

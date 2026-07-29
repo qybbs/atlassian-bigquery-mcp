@@ -8,8 +8,14 @@ export const isTableAllowlisted = (datasetId: string, tableId: string): boolean 
   const allowlist = (process.env.ALLOWLIST_TABLES || '')
     .split(',')
     .map(s => s.trim().toLowerCase());
-  const fullName = `${datasetId}.${tableId}`.toLowerCase();
-  return allowlist.includes(fullName);
+  const targetName = `${datasetId}.${tableId}`.toLowerCase();
+  
+  return allowlist.some(allowed => {
+    const parts = allowed.split('.');
+    const allowedDataset = parts.length === 3 ? parts[1] : parts[0];
+    const allowedTable = parts.length === 3 ? parts[2] : parts[1];
+    return `${allowedDataset}.${allowedTable}` === targetName;
+  });
 };
 
 // Initialize BigQuery Client using Key File or Application Default Credentials (ADC)
@@ -36,15 +42,18 @@ export const listAllowedTables = async () => {
   const results = [];
   for (const tableConfig of tablesConfig) {
     const parts = tableConfig.split('.');
-    if (parts.length === 2) {
-      const [datasetId, tableId] = parts;
+    if (parts.length === 2 || parts.length === 3) {
+      const projectId = parts.length === 3 ? parts[0] : undefined;
+      const datasetId = parts.length === 3 ? parts[1] : parts[0];
+      const tableId = parts.length === 3 ? parts[2] : parts[1];
       try {
-        const dataset = bigquery.dataset(datasetId);
+        const dataset = projectId ? bigquery.dataset(datasetId, { projectId }) : bigquery.dataset(datasetId);
         const table = dataset.table(tableId);
         const [metadata] = await table.getMetadata();
         
         results.push({
           table: tableConfig,
+          projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
           dataset: datasetId,
           name: tableId,
           description: metadata.description || 'No description available',
@@ -56,6 +65,7 @@ export const listAllowedTables = async () => {
         // Fallback if metadata cannot be fetched (e.g. key file not configured yet or permissions missing)
         results.push({
           table: tableConfig,
+          projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
           dataset: datasetId,
           name: tableId,
           description: `Allowlisted table. (Metadata unavailable: ${e.message})`,
@@ -72,7 +82,13 @@ export const describeTable = async (datasetId: string, tableId: string) => {
     throw new Error(`Table ${datasetId}.${tableId} is not in the allowlist.`);
   }
 
-  const dataset = bigquery.dataset(datasetId);
+  // To properly fetch schema, we should find the exact project ID from the allowlist if provided
+  const allowlist = (process.env.ALLOWLIST_TABLES || '').split(',').map(s => s.trim());
+  const tableConfig = allowlist.find(t => t.endsWith(`${datasetId}.${tableId}`));
+  const parts = tableConfig ? tableConfig.split('.') : [];
+  const projectId = parts.length === 3 ? parts[0] : undefined;
+
+  const dataset = projectId ? bigquery.dataset(datasetId, { projectId }) : bigquery.dataset(datasetId);
   const table = dataset.table(tableId);
   const [metadata] = await table.getMetadata();
 

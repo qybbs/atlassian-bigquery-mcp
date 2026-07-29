@@ -86,7 +86,32 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
-    // Render simple, premium-looking login form (AstraPay theme: Sleek Dark / Blue accents)
+    if (process.env.AUTH_PROVIDER === 'OIDC') {
+      // Encrypt Atlassian OAuth state to preserve it across OIDC flow
+      const oidcState = await new jose.EncryptJWT({
+        client_id,
+        redirect_uri,
+        response_type,
+        state,
+        code_challenge,
+        code_challenge_method,
+      })
+        .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+        .setIssuedAt()
+        .setExpirationTime('10m')
+        .encrypt(secretKey);
+
+      const oidcAuthUrl = new URL(process.env.OIDC_AUTHORIZATION_ENDPOINT as string);
+      oidcAuthUrl.searchParams.append('client_id', process.env.OIDC_CLIENT_ID as string);
+      oidcAuthUrl.searchParams.append('redirect_uri', process.env.OIDC_REDIRECT_URI as string);
+      oidcAuthUrl.searchParams.append('response_type', 'code');
+      oidcAuthUrl.searchParams.append('scope', 'openid email profile');
+      oidcAuthUrl.searchParams.append('state', oidcState);
+
+      return res.redirect(oidcAuthUrl.toString());
+    }
+
+    // Render simple, premium-looking login form (Corporate theme: Sleek Dark / Blue accents)
     const html = `
       <!DOCTYPE html>
       <html lang="id">
@@ -185,7 +210,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       </head>
       <body>
         <div class="card">
-          <div class="logo">AstraPay SERSAN</div>
+          <div class="logo">Corporate SERSAN</div>
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
           <form action="/oauth/login" method="POST">
@@ -198,7 +223,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
             
             <div class="form-group">
               <label for="email">Email</label>
-              <input type="email" id="email" name="email" value="${process.env.MOCK_USER_EMAIL || 'user@astrapay.com'}" required>
+              <input type="email" id="email" name="email" value="${process.env.MOCK_USER_EMAIL || 'user@example.com'}" required>
             </div>
             
             <div class="form-group">
@@ -220,6 +245,87 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
   }
 };
 
+// 2.5 OAuth 2.1 GET /oauth/callback (OIDC Callback Handler)
+export const handleOidcCallback = async (req: express.Request, res: express.Response) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) {
+      return res.status(400).send('Missing code or state from OIDC provider');
+    }
+
+    const secretKey = getSecretKey();
+    let atlassianParams: any;
+
+    try {
+      const { payload } = await jose.jwtDecrypt(state as string, secretKey);
+      atlassianParams = payload;
+    } catch (e) {
+      return res.status(400).send('Invalid state token');
+    }
+
+    // Exchange OIDC code for ID Token
+    const tokenResponse = await fetch(process.env.OIDC_TOKEN_ENDPOINT as string, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: process.env.OIDC_CLIENT_ID as string,
+        client_secret: process.env.OIDC_CLIENT_SECRET as string,
+        code: code as string,
+        redirect_uri: process.env.OIDC_REDIRECT_URI as string,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const errText = await tokenResponse.text();
+      console.error('OIDC Token Error:', errText);
+      return res.status(500).send('Failed to exchange OIDC code');
+    }
+
+    const tokenData = await tokenResponse.json() as any;
+    if (!tokenData.id_token) {
+      return res.status(500).send('OIDC provider did not return an id_token');
+    }
+
+    // Decode ID Token to get user info
+    const decodedIdToken = jose.decodeJwt(tokenData.id_token);
+    const email = decodedIdToken.email || decodedIdToken.preferred_username;
+
+    if (!email) {
+      return res.status(500).send('Could not extract email from OIDC id_token');
+    }
+
+    // Generate SERSAN stateless authorization code
+    const authorization_code = await new jose.EncryptJWT({
+      client_id: atlassianParams.client_id,
+      redirect_uri: atlassianParams.redirect_uri,
+      email,
+      code_challenge: atlassianParams.code_challenge,
+      code_challenge_method: atlassianParams.code_challenge_method,
+    })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .encrypt(secretKey);
+
+    // Redirect user back to Atlassian redirect URI
+    const redirectUrl = new URL(atlassianParams.redirect_uri);
+    redirectUrl.searchParams.append('code', authorization_code);
+    if (atlassianParams.state) {
+      redirectUrl.searchParams.append('state', atlassianParams.state);
+    }
+
+    console.log(`[OIDC] User logged in: ${email}. Redirecting back to Atlassian.`);
+    return res.redirect(redirectUrl.toString());
+
+  } catch (err: any) {
+    console.error('OIDC Callback Error:', err);
+    return res.status(500).send('Internal Server Error');
+  }
+};
+
 // 3. OAuth 2.1 POST /oauth/login (Handles Mock Login submission & redirects with Auth Code)
 export const submitLogin = async (req: express.Request, res: express.Response) => {
   try {
@@ -233,8 +339,8 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       password,
     } = req.body;
 
-    const mockEmail = process.env.MOCK_USER_EMAIL || 'user@astrapay.com';
-    const mockPassword = process.env.MOCK_USER_PASSWORD || 'ap-secret-password';
+    const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
+    const mockPassword = process.env.MOCK_USER_PASSWORD || 'secret-password';
 
     // Verify mock credentials
     if (email !== mockEmail || password !== mockPassword) {
@@ -277,7 +383,14 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
 // 4. OAuth 2.1 POST /oauth/token (Exchange Auth Code for JWT Access Token with PKCE Verification)
 export const tokenExchange = async (req: express.Request, res: express.Response) => {
   try {
-    const { grant_type, code, redirect_uri, client_id, code_verifier } = req.body;
+    let { grant_type, code, redirect_uri, client_id, code_verifier } = req.body;
+
+    // Support HTTP Basic Auth for client_id (Atlassian sometimes uses this instead of body parameter)
+    if (!client_id && req.headers.authorization?.startsWith('Basic ')) {
+      const base64Credentials = req.headers.authorization.split(' ')[1];
+      const decodedCredentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
+      client_id = decodedCredentials.split(':')[0];
+    }
 
     if (grant_type !== 'authorization_code') {
       return res.status(400).json({ error: 'unsupported_grant_type', error_description: 'Only authorization_code is supported' });

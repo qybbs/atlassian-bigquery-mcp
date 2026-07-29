@@ -43,8 +43,16 @@ This project implements a stateless, federated Model Context Protocol (MCP) serv
     
     # Your Google Cloud Project ID
     GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
+    
+    # Authentication Mode: MOCK or OIDC
+    AUTH_PROVIDER=OIDC
+    OIDC_CLIENT_ID=your-oidc-client-id
+    OIDC_CLIENT_SECRET=your-oidc-client-secret
+    OIDC_AUTHORIZATION_ENDPOINT=https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize
+    OIDC_TOKEN_ENDPOINT=https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
+    OIDC_REDIRECT_URI=https://your-tunnel-domain.trycloudflare.com/oauth/callback
     ```
-    *Note: Do not commit your service account key file.*
+    *Note: Do not commit your service account key file or OIDC secrets.*
 
 4.  **Build the project:**
     ```bash
@@ -85,25 +93,25 @@ npm install -D typescript@5.7.3 @types/node@20 ts-node-dev
 Before connecting to Atlassian Rovo, you can test the entire registration, OAuth 2.1 authentication (mock login), and JSON-RPC tool calling locally.
 
 ### 1. Dynamic Client Registration (DCR)
-Register a mock client (using `https://httpbin.org/get` as a redirect URI helper to inspect redirected parameters):
+Register a mock client (using `https://httpbin.io/get` as a redirect URI helper to inspect redirected parameters):
 ```bash
 curl -X POST http://localhost:3000/register \
   -H "Content-Type: application/json" \
-  -d '\''{
+  -d '{
     "client_name": "Local Test Client",
-    "redirect_uris": ["https://httpbin.org/get"]
-  }'\''
+    "redirect_uris": ["https://httpbin.io/get"]
+  }'
 ```
 *Save the `client_id` returned in the JSON response.*
 
 ### 2. Authorization Code (PKCE Sim)
 Construct the authorization URL, replacing `<CLIENT_ID>` with the one from Step 1:
 ```text
-http://localhost:3000/oauth/authorize?client_id=<CLIENT_ID>&redirect_uri=https://httpbin.org/get&code_challenge=test_verifier_123&code_challenge_method=plain&state=test_state
+http://localhost:3000/oauth/authorize?client_id=<CLIENT_ID>&redirect_uri=https://httpbin.io/get&code_challenge=test_verifier_123&code_challenge_method=plain&state=test_state
 ```
 1. Open the URL in your browser.
-2. Log in using `user@astrapay.com` and password `ap-secret-password`.
-3. The page will redirect you to `httpbin.org`.
+2. Log in using `user@example.com` and password `secret-password`.
+3. The page will redirect you to `httpbin.io`.
 4. Copy the `code` query parameter value from the browser's address bar or the JSON response.
 
 ### 3. Token Exchange
@@ -111,13 +119,13 @@ Exchange the authorization code for a JWT Access Token:
 ```bash
 curl -X POST http://localhost:3000/oauth/token \
   -H "Content-Type: application/json" \
-  -d '\''{
+  -d '{
     "grant_type": "authorization_code",
     "client_id": "<CLIENT_ID>",
     "code": "<AUTHORIZATION_CODE>",
-    "redirect_uri": "https://httpbin.org/get",
+    "redirect_uri": "https://httpbin.io/get",
     "code_verifier": "test_verifier_123"
-  }'\''
+  }'
 ```
 *Save the `access_token` returned in the JSON response.*
 
@@ -147,6 +155,4 @@ Use the `access_token` as a Bearer token to communicate with the `/mcp` transpor
     -H "Content-Type: application/json" \
     -d '\''{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "execute_readonly_query", "arguments": {"sql": "SELECT COUNT(1) FROM `bigquery-public-data.chicago_taxi_trips.taxi_trips`"}}, "id": 3}'\''
   ```
-
-## License
-MIT
+  

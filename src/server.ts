@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { registerClient, authorizeUser, submitLogin, tokenExchange } from './oauth';
+import { registerClient, authorizeUser, submitLogin, tokenExchange, handleOidcCallback } from './oauth';
 import { handleMcpRequest } from './mcp';
 
 // Load environment variables
@@ -23,6 +23,7 @@ app.post('/register', registerClient);
 
 // OAuth 2.1 Endpoints
 app.get('/oauth/authorize', authorizeUser);
+app.get('/oauth/callback', handleOidcCallback);
 app.post('/oauth/login', submitLogin);
 app.post('/oauth/token', tokenExchange);
 

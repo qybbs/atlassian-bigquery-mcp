@@ -32,6 +32,35 @@ bigquery-mcp/
 └── .env.example            # Environment variables example template
 ```
 
+## Available MCP Tools
+
+This MCP server exposes the following custom tools to external clients (e.g., Atlassian Rovo) for secure BigQuery interaction:
+
+1. **`list_allowed_tables`**
+   - **Description**: Returns the list of all BigQuery tables currently allowlisted on the server.
+   - **Arguments**: None.
+
+2. **`describe_table`**
+   - **Description**: Retrieves detailed schema information for a specific allowlisted table, including field names, types, descriptions, and partitioning/clustering properties.
+   - **Arguments**:
+     - `datasetId` (string, required): The BigQuery dataset ID.
+     - `tableId` (string, required): The BigQuery table ID.
+
+3. **`estimate_query_cost`**
+   - **Description**: Performs a dry-run execution of a GoogleSQL `SELECT` query. Validates query safety and calculates the projected volume of bytes scanned (costs).
+   - **Arguments**:
+     - `sql` (string, required): The SQL `SELECT` query statement to estimate.
+
+4. **`execute_readonly_query`**
+   - **Description**: Executes a read-only GoogleSQL `SELECT` query on the allowed tables. Enforces client-side row capping (max 1000 rows) and database-side cost protection limits (`MAX_BYTES_BILLED`).
+   - **Arguments**:
+     - `sql` (string, required): The SQL `SELECT` query statement to execute.
+
+5. **`search_allowed_tables`**
+   - **Description**: Searches allowlisted tables and their schemas by a keyword (e.g., 'transaction'). Returns matching tables, their metadata, partitioning, and full schemas in a single request.
+   - **Arguments**:
+     - `keyword` (string, required): The search keyword to filter datasets and table names.
+
 ## Prerequisites
 
 - Node.js (v18+)
@@ -129,11 +158,11 @@ Use Google Cloud Build and Artifact Registry:
 # Build and push to Artifact Registry
 gcloud builds submit --tag asia-southeast1-docker.pkg.dev/<GCP_PROJECT>/<REPO_NAME>/bigquery-mcp:latest
 
-# Deploy to Cloud Run (Unauthenticated is NOT allowed, authentication is handled by application layer)
+# Deploy to Cloud Run (Allow unauthenticated ingress; authentication is handled at the application layer via OAuth 2.1)
 gcloud run deploy bigquery-mcp \
   --image asia-southeast1-docker.pkg.dev/<GCP_PROJECT>/<REPO_NAME>/bigquery-mcp:latest \
   --region asia-southeast1 \
-  --no-allow-unauthenticated \
+  --allow-unauthenticated \
   --set-env-vars="MASTER_SECRET_KEY=...,AUTH_PROVIDER=OIDC,..."
 ```
 

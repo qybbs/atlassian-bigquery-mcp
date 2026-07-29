@@ -11,34 +11,12 @@ const getSecretKey = (): Buffer => {
 };
 
 // SQL Policy Engine: Strips comments, checks read-only SELECT, blocks DML/DDL, and checks allowlisted tables
-export const validateQuerySafety = (sql: string): { safe: boolean; reason?: string } => {
+export const validateQuerySafety = (sql: string): { safe: boolean; reason?: string; detectedTables: string[] } => {
   const cleanSql = sql.trim().toLowerCase();
   
   // 1. Remove comments (both block /* */ and inline -- comments) to prevent evasion
   const sqlWithoutComments = cleanSql.replace(/\/\*[\s\S]*?\*\/|--.*$/gm, '').trim();
   
-  // 2. Must start with SELECT or WITH ... SELECT
-  if (!sqlWithoutComments.startsWith('select') && !sqlWithoutComments.startsWith('with')) {
-    return { safe: false, reason: 'Hanya query SELECT (atau WITH ... SELECT) yang diizinkan.' };
-  }
-
-  // 3. Denylist DDL/DML/Scripting keywords
-  const forbiddenKeywords = [
-    'insert', 'update', 'delete', 'merge', 'create', 'drop', 'alter',
-    'truncate', 'grant', 'revoke', 'declare', 'execute immediate', 'call'
-  ];
-  for (const word of forbiddenKeywords) {
-    const regex = new RegExp(`\\b${word}\\b`, 'i');
-    if (regex.test(sqlWithoutComments)) {
-      return { safe: false, reason: `Query mengandung keyword terlarang: "${word}"` };
-    }
-  }
-
-  // 4. Table Allowlist verification
-  const allowlist = (process.env.ALLOWLIST_TABLES || '')
-    .split(',')
-    .map(s => s.trim().toLowerCase());
-
   // Matches either `dataset.table`, `project.dataset.table`, or backticked versions: `dataset.table`
   const pattern = /`?([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)(?:\.([a-zA-Z0-9_-]+))?`?/g;
   let match;
@@ -49,18 +27,58 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
     detectedTables.push(`${dataset}.${table}`);
   }
 
+  // 2. Must start with SELECT or WITH ... SELECT
+  if (!sqlWithoutComments.startsWith('select') && !sqlWithoutComments.startsWith('with')) {
+    return { safe: false, reason: 'Hanya query SELECT (atau WITH ... SELECT) yang diizinkan.', detectedTables };
+  }
+
+  // 3. Denylist DDL/DML/Scripting keywords
+  const forbiddenKeywords = [
+    'insert', 'update', 'delete', 'merge', 'create', 'drop', 'alter',
+    'truncate', 'grant', 'revoke', 'declare', 'execute immediate', 'call'
+  ];
+  for (const word of forbiddenKeywords) {
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    if (regex.test(sqlWithoutComments)) {
+      return { safe: false, reason: `Query mengandung keyword terlarang: "${word}"`, detectedTables };
+    }
+  }
+
+  // 4. Table Allowlist verification
   if (detectedTables.length === 0) {
-    return { safe: false, reason: 'Tidak dapat mendeteksi tabel rujukan. Pastikan penulisan tabel menggunakan format `dataset.table`.' };
+    return { safe: false, reason: 'Tidak dapat mendeteksi tabel rujukan. Pastikan penulisan tabel menggunakan format `dataset.table`.', detectedTables };
   }
 
   for (const table of detectedTables) {
     const parts = table.split('.');
     if (!isTableAllowlisted(parts[0], parts[1])) {
-      return { safe: false, reason: `Tabel "${table}" tidak terdaftar dalam allowlist.` };
+      return { safe: false, reason: `Tabel "${table}" tidak terdaftar dalam allowlist.`, detectedTables };
     }
   }
 
-  return { safe: true };
+  return { safe: true, detectedTables };
+};
+
+// Helper for structured JSON logging (auto-parsed by Google Cloud Logging)
+const writeAuditLog = (log: {
+  requestId: string | number;
+  userEmail: string;
+  toolName: string;
+  sql?: string;
+  bytesEstimate?: number;
+  tablesTouched?: string[];
+  status: 'SUCCESS' | 'FAILED' | 'REJECTED';
+  denialReason?: string;
+  error?: string;
+  rowCount?: number;
+}) => {
+  const auditLogEntry = {
+    timestamp: new Date().toISOString(),
+    severity: log.status === 'FAILED' ? 'ERROR' : log.status === 'REJECTED' ? 'WARNING' : 'INFO',
+    message: `[MCP AUDIT] ${log.userEmail} executed ${log.toolName} - ${log.status}`,
+    audit: log,
+  };
+  console.log(JSON.stringify(auditLogEntry));
 };
 
 // Express handler to process Model Context Protocol (MCP) JSON-RPC requests
@@ -84,6 +102,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
   }
 
   const { jsonrpc, id, method, params } = req.body;
+
 
   if (jsonrpc !== '2.0') {
     return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
@@ -173,19 +192,51 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
 
         switch (toolName) {
           case 'list_allowed_tables': {
-            const list = await listAllowedTables();
-            return res.status(200).json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: JSON.stringify(list, null, 2) }],
-              },
-            });
+            try {
+              const list = await listAllowedTables();
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'list_allowed_tables',
+                status: 'SUCCESS',
+                rowCount: list.length,
+              });
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: JSON.stringify(list, null, 2) }],
+                },
+              });
+            } catch (err: any) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'list_allowed_tables',
+                status: 'FAILED',
+                error: err.message,
+              });
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `Error: ${err.message}` }],
+                  isError: true,
+                },
+              });
+            }
           }
 
           case 'describe_table': {
             const { datasetId, tableId } = args;
             if (!datasetId || !tableId) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'describe_table',
+                status: 'REJECTED',
+                denialReason: 'Error: Both datasetId and tableId are required.',
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -198,6 +249,13 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
 
             try {
               const schema = await describeTable(datasetId, tableId);
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'describe_table',
+                tablesTouched: [`${datasetId}.${tableId}`],
+                status: 'SUCCESS',
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -206,6 +264,14 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
                 },
               });
             } catch (err: any) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'describe_table',
+                tablesTouched: [`${datasetId}.${tableId}`],
+                status: 'FAILED',
+                error: err.message,
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -220,6 +286,13 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
           case 'estimate_query_cost': {
             const { sql } = args;
             if (!sql) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'estimate_query_cost',
+                status: 'REJECTED',
+                denialReason: 'Error: sql query parameter is required.',
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -233,42 +306,15 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             // Policy Engine verification
             const safety = validateQuerySafety(sql);
             if (!safety.safe) {
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
-                  isError: true,
-                },
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'estimate_query_cost',
+                sql,
+                tablesTouched: safety.detectedTables,
+                status: 'REJECTED',
+                denialReason: safety.reason,
               });
-            }
-
-            const estimate = await estimateQueryCost(sql);
-            return res.status(200).json({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                content: [{ type: 'text', text: JSON.stringify(estimate, null, 2) }],
-              },
-            });
-          }
-
-          case 'execute_readonly_query': {
-            const { sql } = args;
-            if (!sql) {
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
-                  isError: true,
-                },
-              });
-            }
-
-            // Policy Engine verification
-            const safety = validateQuerySafety(sql);
-            if (!safety.safe) {
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -280,10 +326,109 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             }
 
             try {
-              // Custom Audit Enrichment Log
-              console.log(`[AUDIT] User: ${userEmail} | Executing Query: ${sql.replace(/\n/g, ' ')}`);
+              const estimate = await estimateQueryCost(sql);
+              if (estimate.valid) {
+                writeAuditLog({
+                  requestId: id,
+                  userEmail,
+                  toolName: 'estimate_query_cost',
+                  sql,
+                  tablesTouched: safety.detectedTables,
+                  bytesEstimate: estimate.bytesScanned,
+                  status: 'SUCCESS',
+                });
+              } else {
+                writeAuditLog({
+                  requestId: id,
+                  userEmail,
+                  toolName: 'estimate_query_cost',
+                  sql,
+                  tablesTouched: safety.detectedTables,
+                  status: 'FAILED',
+                  error: estimate.error,
+                });
+              }
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: JSON.stringify(estimate, null, 2) }],
+                },
+              });
+            } catch (err: any) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'estimate_query_cost',
+                sql,
+                tablesTouched: safety.detectedTables,
+                status: 'FAILED',
+                error: err.message,
+              });
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `Error: ${err.message}` }],
+                  isError: true,
+                },
+              });
+            }
+          }
 
+          case 'execute_readonly_query': {
+            const { sql } = args;
+            if (!sql) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'execute_readonly_query',
+                status: 'REJECTED',
+                denialReason: 'Error: sql query parameter is required.',
+              });
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
+                  isError: true,
+                },
+              });
+            }
+
+            // Policy Engine verification
+            const safety = validateQuerySafety(sql);
+            if (!safety.safe) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'execute_readonly_query',
+                sql,
+                tablesTouched: safety.detectedTables,
+                status: 'REJECTED',
+                denialReason: safety.reason,
+              });
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
+                  isError: true,
+                },
+              });
+            }
+
+            try {
               const rows = await executeReadonlyQuery(sql);
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'execute_readonly_query',
+                sql,
+                tablesTouched: safety.detectedTables,
+                status: 'SUCCESS',
+                rowCount: rows.length,
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -292,7 +437,15 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
                 },
               });
             } catch (err: any) {
-              console.error(`[BigQuery Error] Executed by ${userEmail}:`, err.message);
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'execute_readonly_query',
+                sql,
+                tablesTouched: safety.detectedTables,
+                status: 'FAILED',
+                error: err.message,
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -307,6 +460,13 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
           case 'search_allowed_tables': {
             const { keyword } = args;
             if (!keyword) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'search_allowed_tables',
+                status: 'REJECTED',
+                denialReason: 'Error: parameter "keyword" wajib diisi.',
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -318,6 +478,12 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             }
             try {
               const searchResults = await searchAllowedTables(keyword);
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'search_allowed_tables',
+                status: 'SUCCESS',
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,
@@ -326,6 +492,13 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
                 },
               });
             } catch (err: any) {
+              writeAuditLog({
+                requestId: id,
+                userEmail,
+                toolName: 'search_allowed_tables',
+                status: 'FAILED',
+                error: err.message,
+              });
               return res.status(200).json({
                 jsonrpc: '2.0',
                 id,

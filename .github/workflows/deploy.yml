@@ -51,6 +51,11 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          SERVICE_ACCOUNT_FLAG=""
+          if [ ! -z "${{ vars.GCP_SERVICE_ACCOUNT }}" ]; then
+            SERVICE_ACCOUNT_FLAG="--service-account=${{ vars.GCP_SERVICE_ACCOUNT }}"
+          fi
+
           gcloud run deploy "$SERVICE" \
             --image "$IMAGE" \
             --project "$PROJECT_ID" \
@@ -60,6 +65,8 @@ jobs:
             --cpu 1 \
             --memory 512Mi \
             --min-instances=0 --no-cpu-throttling --cpu-boost \
-            --max-instances 5 \
+            --max-instances 3 \
+            $SERVICE_ACCOUNT_FLAG \
             --env-vars-file /tmp/env.yaml \
             --allow-unauthenticated
+

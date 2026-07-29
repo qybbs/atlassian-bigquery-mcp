@@ -32,16 +32,16 @@ app.post('/mcp', handleMcpRequest);
 
 // Simple Health Check
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'SERSAN BigQuery MCP Server' });
+  res.json({ status: 'ok', service: 'Atlassian BigQuery MCP Server' });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'SERSAN BigQuery MCP Server' });
+  res.json({ status: 'ok', service: 'Atlassian BigQuery MCP Server' });
 });
 
 // Start Server
 app.listen(port, () => {
-  console.log(`SERSAN BigQuery MCP Server is running at http://localhost:${port}`);
+  console.log(`Atlassian BigQuery MCP Server is running at http://localhost:${port}`);
   console.log(`DCR Endpoint: http://localhost:${port}/register`);
   console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
   console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);

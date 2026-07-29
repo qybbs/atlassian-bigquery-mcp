@@ -118,7 +118,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>SERSAN MCP Otorisasi</title>
+        <title>BigQuery MCP Otorisasi</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
           body {
@@ -210,7 +210,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       </head>
       <body>
         <div class="card">
-          <div class="logo">Corporate SERSAN</div>
+          <div class="logo">Corporate</div>
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
           <form action="/oauth/login" method="POST">
@@ -297,7 +297,7 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
       return res.status(500).send('Could not extract email from OIDC id_token');
     }
 
-    // Generate SERSAN stateless authorization code
+    // Generate stateless authorization code
     const authorization_code = await new jose.EncryptJWT({
       client_id: atlassianParams.client_id,
       redirect_uri: atlassianParams.redirect_uri,

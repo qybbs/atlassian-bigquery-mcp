@@ -141,7 +141,7 @@ gcloud run deploy bigquery-mcp \
 
 The service exposes the following endpoints for liveness and readiness probes in Cloud Run or Kubernetes:
 - `GET /` and `GET /health`
-  Returns `{"status": "ok", "service": "SERSAN BigQuery MCP Server"}` (HTTP 200).
+  Returns `{"status": "ok", "service": "Atlassian BigQuery MCP Server"}` (HTTP 200).
 
 ## Running the Server
 

@@ -1,0 +1,20 @@
+steps:
+  # 1. Build the container image using the Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE}'
+      - '.'
+
+  # 2. Push the built image to GCP Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_IMAGE}'
+
+images:
+  - '${_IMAGE}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

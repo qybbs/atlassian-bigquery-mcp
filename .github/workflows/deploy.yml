@@ -1,0 +1,65 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: asia-southeast1
+  SERVICE: atlassian-bigquery-mcp
+  AR_REPO: mcp-registry
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${SERVICE}:${GITHUB_SHA}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          # Build image using Cloud Build (build & push only)
+          gcloud builds submit --config cloudbuild.yaml --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --substitutions=_IMAGE="$IMAGE" \
+            .
+
+      - name: Write env vars file
+        run: |
+          cat > /tmp/env.yaml <<EOF
+          PORT: "3000"
+          MASTER_SECRET_KEY: "${{ secrets.MASTER_SECRET_KEY }}"
+          ALLOWLIST_TABLES: "${{ vars.ALLOWLIST_TABLES }}"
+          AUTH_PROVIDER: "${{ vars.AUTH_PROVIDER }}"
+          OIDC_CLIENT_ID: "${{ secrets.OIDC_CLIENT_ID }}"
+          OIDC_CLIENT_SECRET: "${{ secrets.OIDC_CLIENT_SECRET }}"
+          OIDC_AUTHORIZATION_ENDPOINT: "${{ vars.OIDC_AUTHORIZATION_ENDPOINT }}"
+          OIDC_TOKEN_ENDPOINT: "${{ vars.OIDC_TOKEN_ENDPOINT }}"
+          OIDC_REDIRECT_URI: "${{ vars.OIDC_REDIRECT_URI }}"
+          EOF
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --platform managed \
+            --port 3000 \
+            --cpu 1 \
+            --memory 512Mi \
+            --min-instances=0 --no-cpu-throttling --cpu-boost \
+            --max-instances 5 \
+            --env-vars-file /tmp/env.yaml \
+            --allow-unauthenticated

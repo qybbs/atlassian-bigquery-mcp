@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  bigquery-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    volumes:
+      # Mount service account key file locally if specified in .env
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    restart: unless-stopped

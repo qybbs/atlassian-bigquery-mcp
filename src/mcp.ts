@@ -1,6 +1,6 @@
 import express from 'express';
 import * as jose from 'jose';
-import { listAllowedTables, describeTable, estimateQueryCost, executeReadonlyQuery, isTableAllowlisted } from './bigquery';
+import { listAllowedTables, describeTable, estimateQueryCost, executeReadonlyQuery, isTableAllowlisted, searchAllowedTables } from './bigquery';
 
 const getSecretKey = (): Buffer => {
   const key = process.env.MASTER_SECRET_KEY;
@@ -140,6 +140,17 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
                     sql: { type: 'string', description: 'GoogleSQL SELECT query statement' },
                   },
                   required: ['sql'],
+                },
+              },
+              {
+                name: 'search_allowed_tables',
+                description: "Search allowed tables and their schemas by a keyword (e.g., 'transaction', 'customer'). Returns table description, partitioning columns, clustering columns, and field schemas in one call.",
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    keyword: { type: 'string', description: 'The search keyword to filter table names and datasets' },
+                  },
+                  required: ['keyword'],
                 },
               },
             ],
@@ -287,6 +298,39 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
                 id,
                 result: {
                   content: [{ type: 'text', text: `Database Error: ${err.message}` }],
+                  isError: true,
+                },
+              });
+            }
+          }
+
+          case 'search_allowed_tables': {
+            const { keyword } = args;
+            if (!keyword) {
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: 'Error: parameter "keyword" wajib diisi.' }],
+                  isError: true,
+                },
+              });
+            }
+            try {
+              const searchResults = await searchAllowedTables(keyword);
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: JSON.stringify(searchResults, null, 2) }],
+                },
+              });
+            } catch (err: any) {
+              return res.status(200).json({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `Error: ${err.message}` }],
                   isError: true,
                 },
               });

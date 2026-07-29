@@ -76,7 +76,7 @@ export const listAllowedTables = async () => {
   return results;
 };
 
-// 2. Describe Table Schema
+// 2. Describe Table Schema (with Partitioning & Clustering)
 export const describeTable = async (datasetId: string, tableId: string) => {
   if (!isTableAllowlisted(datasetId, tableId)) {
     throw new Error(`Table ${datasetId}.${tableId} is not in the allowlist.`);
@@ -99,9 +99,30 @@ export const describeTable = async (datasetId: string, tableId: string) => {
     description: f.description || '',
   }));
 
+  // Ekstraksi info Partisi
+  let partitionInfo = null;
+  if (metadata.timePartitioning) {
+    partitionInfo = {
+      type: 'TIME',
+      field: metadata.timePartitioning.field || '_PARTITIONTIME',
+      granularity: metadata.timePartitioning.type,
+      requirePartitionFilter: !!metadata.timePartitioning.requirePartitionFilter,
+    };
+  } else if (metadata.rangePartitioning) {
+    partitionInfo = {
+      type: 'RANGE',
+      field: metadata.rangePartitioning.field,
+    };
+  }
+
+  // Ekstraksi info Clustering
+  const clusteringInfo = metadata.clustering ? metadata.clustering.fields : null;
+
   return {
     table: `${datasetId}.${tableId}`,
     description: metadata.description || 'No description available',
+    partitionInfo,
+    clusteringInfo,
     fields,
   };
 };
@@ -149,4 +170,48 @@ export const executeReadonlyQuery = async (sql: string) => {
   });
 
   return rows;
+};
+
+// 5. Search Allowed Tables (Hybrid Metadata Search)
+export const searchAllowedTables = async (keyword: string) => {
+  const list = process.env.ALLOWLIST_TABLES || '';
+  const tablesConfig = list.split(',').map(s => s.trim()).filter(Boolean);
+  const lowercaseKeyword = keyword.toLowerCase();
+  
+  // 1. Saring tabel dari allowlist yang cocok dengan kata kunci
+  const matchedConfigs = tablesConfig.filter(tableConfig => 
+    tableConfig.toLowerCase().includes(lowercaseKeyword)
+  );
+  
+  if (matchedConfigs.length === 0) {
+    return {
+      message: `Tidak ditemukan tabel dalam allowlist yang cocok dengan kata kunci "${keyword}".`
+    };
+  }
+  
+  // Limit pencarian maksimal ke 5 tabel untuk menghindari payload bengkak & rate-limiting
+  const limitedConfigs = matchedConfigs.slice(0, 5);
+  const results = [];
+  
+  for (const tableConfig of limitedConfigs) {
+    const parts = tableConfig.split('.');
+    const datasetId = parts.length === 3 ? parts[1] : parts[0];
+    const tableId = parts.length === 3 ? parts[2] : parts[1];
+    
+    try {
+      const schemaInfo = await describeTable(datasetId, tableId);
+      results.push(schemaInfo);
+    } catch (e: any) {
+      results.push({
+        table: tableConfig,
+        error: `Gagal memuat skema: ${e.message}`
+      });
+    }
+  }
+  
+  return {
+    keyword,
+    matchedCount: matchedConfigs.length,
+    tables: results
+  };
 };

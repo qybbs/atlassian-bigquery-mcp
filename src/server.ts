@@ -10,6 +10,9 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Trust proxy to correctly identify HTTPS protocol when running behind reverse proxies like ngrok
+app.set('trust proxy', true);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -27,6 +30,10 @@ app.post('/oauth/token', tokenExchange);
 app.post('/mcp', handleMcpRequest);
 
 // Simple Health Check
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'SERSAN BigQuery MCP Server' });
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'SERSAN BigQuery MCP Server' });
 });

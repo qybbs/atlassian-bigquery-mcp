@@ -121,35 +121,62 @@ To enable OAuth 2.1 authorization for internal employees:
 4. Generate a Client Secret.
 5. Configure your `.env` file with `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and endpoints corresponding to your tenant.
 
-### 2. Atlassian Rovo Integration
-To connect this MCP server to your Atlassian workspace:
-1. Go to **Atlassian Administration > Settings > External MCP Servers**.
-2. Click **Add MCP Server**.
-3. In the setup wizard, input the Dynamic Client Registration (DCR) endpoint of your server: `https://<your-mcp-domain>/register`.
-4. Rovo will automatically register itself and exchange credentials.
-5. In **Atlassian Studio**, create or edit your Rovo Agent and map the available tools (`search_allowed_tables`, `execute_readonly_query`, etc.) and provide Custom Instructions guiding the agent to use them.
+### 2. Atlassian Administration Integration
+To securely connect this MCP server to your Atlassian workspace, it must meet these requirements:
+- **Publicly accessible over HTTPS** with a valid TLS certificate.
+- **Streamable HTTP transport** (supported by this server out-of-the-box).
+- **OAuth 2.1 with PKCE** and **Dynamic Client Registration (DCR)** (supported and configured via the `.env` file).
+
+**Registration Steps:**
+1. Navigate to **Atlassian Administration** and select your organization.
+2. From the sidebar menu, expand **Apps** > **Sites**, then select the site where the MCP server will be added.
+3. Select **Connected apps** > Expand the dropdown button beside **Explore apps**.
+4. Select **Add external MCP server**.
+5. Read the disclaimers, then select **Agree and continue**.
+6. Select **Custom MCP server** from the list and enter your MCP server's base URL (e.g., `https://<your-mcp-domain>`).
+7. Complete the authorization flow. The server will dynamically register Atlassian as a client using DCR.
+8. Once connected, your team can access the tools in Atlassian Studio to build Rovo Agents.
+
+## Usage as an NPM Module (Library)
+
+This server can be used as an imported library in another Node.js project (such as an AI Gateway). 
+
+1. **Build the project** to generate the distribution files:
+   ```bash
+   npm run build
+   ```
+2. **Import the core handlers** into your project:
+   ```typescript
+   import { 
+     handleMcpRequest, 
+     validateQuerySafety, 
+     registerClient 
+   } from 'bigquery-mcp';
+   ```
+   The `dist/index.js` and `dist/index.d.ts` files expose all core MCP, OAuth, and BigQuery tools, allowing you to mount them directly onto your own Express server or routing layer.
 
 ## Production Deployment (Google Cloud Run)
 
 This repository is designed to be deployed to Google Cloud Run as a stateless container.
 
-### Docker Containerization
-A standard `Dockerfile` (Node.js 18+ base) should be used to build the image:
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
+### Docker Containerization & CI/CD
+This project includes a GitHub Actions workflow (`.github/workflows/release-docker.yml`) that automatically builds and pushes the Docker image to the **GitHub Container Registry (GHCR)** whenever a new release or tag (`v*`) is pushed to the repository.
 
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY --from=builder /app/dist ./dist
-EXPOSE 3000
-CMD ["node", "dist/server.js"]
+To run the Docker image locally or in production, you must inject the necessary configuration via Environment Variables:
+- **BigQuery Limits**: `MAX_BYTES_BILLED`, `ROW_LIMIT`
+- **Security & Authorization**: `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_REDIRECT_URIS`, `TOKEN_EXPIRATION`, `TOKEN_EXPIRATION_SECONDS`
+- **Authentication Credentials**: `MASTER_SECRET_KEY`, `AUTH_PROVIDER`, and OIDC specific variables.
+
+Example running the container locally:
+```bash
+docker run -p 3000:3000 \
+  -e MAX_BYTES_BILLED=10737418240 \
+  -e ROW_LIMIT=1000 \
+  -e ALLOWED_EMAIL_DOMAINS="example.com" \
+  -e MASTER_SECRET_KEY="<your-base64-key>" \
+  -v $(pwd)/service-account.json:/app/service-account.json \
+  -e GOOGLE_APPLICATION_CREDENTIALS="/app/service-account.json" \
+  ghcr.io/<your-github-username>/bigquery-mcp:latest
 ```
 
 ### Deployment Commands

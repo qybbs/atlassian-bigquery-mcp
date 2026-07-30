@@ -19,6 +19,14 @@ export const registerClient = async (req: express.Request, res: express.Response
       return res.status(400).json({ error: 'redirect_uris is required and must be a non-empty array' });
     }
 
+    const allowedRedirectUris = process.env.ALLOWED_REDIRECT_URIS ? process.env.ALLOWED_REDIRECT_URIS.split(',').map(s => s.trim()) : [];
+    if (allowedRedirectUris.length > 0) {
+      const invalidUris = redirect_uris.filter((uri: string) => !allowedRedirectUris.includes(uri));
+      if (invalidUris.length > 0) {
+        return res.status(400).json({ error: 'invalid_redirect_uri', error_description: 'One or more redirect URIs are not allowed' });
+      }
+    }
+
     const secretKey = getSecretKey();
 
     // Stateless Client ID: Encrypted JWE containing registration metadata
@@ -291,10 +299,19 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
 
     // Decode ID Token to get user info
     const decodedIdToken = jose.decodeJwt(tokenData.id_token);
-    const email = decodedIdToken.email || decodedIdToken.preferred_username;
+    const email = (decodedIdToken.email || decodedIdToken.preferred_username) as string;
 
     if (!email) {
       return res.status(500).send('Could not extract email from OIDC id_token');
+    }
+
+    const allowedDomainsStr = process.env.ALLOWED_EMAIL_DOMAINS;
+    if (allowedDomainsStr) {
+      const allowedDomains = allowedDomainsStr.split(',').map(d => d.trim().toLowerCase());
+      const emailDomain = email.split('@')[1]?.toLowerCase();
+      if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+        return res.status(403).send('Email domain not allowed');
+      }
     }
 
     // Generate stateless authorization code
@@ -446,7 +463,7 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
     })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
-      .setExpirationTime('1h') // Token valid for 1 hour
+      .setExpirationTime(process.env.TOKEN_EXPIRATION || '1h')
       .sign(secretKey);
 
     console.log(`[OAuth] Issued Access Token for: ${user_email}`);
@@ -454,7 +471,7 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
     return res.status(200).json({
       access_token,
       token_type: 'Bearer',
-      expires_in: 3600,
+      expires_in: parseInt(process.env.TOKEN_EXPIRATION_SECONDS || '3600', 10),
     });
   } catch (err: any) {
     console.error('Token Exchange Error:', err);

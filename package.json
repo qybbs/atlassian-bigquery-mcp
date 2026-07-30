@@ -2,7 +2,11 @@
   "name": "bigquery-mcp",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
   "directories": {
     "doc": "docs"
   },

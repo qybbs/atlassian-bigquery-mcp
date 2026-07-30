@@ -164,9 +164,11 @@ export const executeReadonlyQuery = async (sql: string) => {
 
   console.log(`[BigQuery] Executing job: ${job.id} with maxBytesBilled limit: ${maxBytesBilled}`);
   
+  const rowLimit = parseInt(process.env.ROW_LIMIT || '1000', 10);
+  
   // Enforce Row capping at the client-side retrieval level
   const [rows] = await job.getQueryResults({
-    maxResults: 1000,
+    maxResults: rowLimit,
   });
 
   return rows;

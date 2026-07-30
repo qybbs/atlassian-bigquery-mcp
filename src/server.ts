@@ -40,10 +40,14 @@ app.get('/health', (req, res) => {
 });
 
 // Start Server
-app.listen(port, () => {
-  console.log(`Atlassian BigQuery MCP Server is running at http://localhost:${port}`);
-  console.log(`DCR Endpoint: http://localhost:${port}/register`);
-  console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
-  console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
-  console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, () => {
+    console.log(`Atlassian BigQuery MCP Server is running at http://localhost:${port}`);
+    console.log(`DCR Endpoint: http://localhost:${port}/register`);
+    console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
+    console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
+    console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
+  });
+}
+
+export default app;

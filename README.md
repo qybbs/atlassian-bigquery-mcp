@@ -191,6 +191,9 @@ To test the OAuth flow with external clients like Atlassian Rovo, you need to ex
 ```bash
 # Using ngrok
 ngrok http 3000
+
+# Using Cloudflare Tunnel (Quick Tunnel)
+cloudflared tunnel --url http://localhost:3000
 ```
 
 Update your client configuration to point to the generated ngrok/Cloudflare URL.

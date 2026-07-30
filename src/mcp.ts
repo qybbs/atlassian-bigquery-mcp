@@ -112,6 +112,34 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
 
   try {
     switch (method) {
+      // 0. MCP Connection Initialization
+      case 'initialize': {
+        writeAuditLog({
+          requestId: id,
+          userEmail,
+          toolName: 'initialize',
+          status: 'SUCCESS',
+        });
+        return res.status(200).json({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            protocolVersion: params?.protocolVersion || '2024-11-05',
+            capabilities: {
+              tools: {},
+            },
+            serverInfo: {
+              name: 'bigquery-mcp-server',
+              version: '1.0.0',
+            },
+          },
+        });
+      }
+
+      case 'notifications/initialized': {
+        return res.status(200).end();
+      }
+
       // 1. List Available Tools
       case 'tools/list': {
         return res.status(200).json({

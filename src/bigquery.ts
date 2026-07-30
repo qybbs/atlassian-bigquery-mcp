@@ -155,7 +155,7 @@ export const estimateQueryCost = async (sql: string) => {
 
 // 4. Execute Readonly Query (with Hard Caps & Security Validation)
 export const executeReadonlyQuery = async (sql: string) => {
-  const maxBytesBilled = process.env.MAX_BYTES_BILLED || '1073741824'; // Default 1 GB
+  const maxBytesBilled = process.env.MAX_BYTES_BILLED || '10737418240'; // Default 10 GB
 
   const [job] = await bigquery.createQueryJob({
     query: sql,

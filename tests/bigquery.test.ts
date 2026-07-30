@@ -69,6 +69,15 @@ describe('bigquery module', () => {
     it('harus mengembalikan false untuk tabel yang tidak terdaftar', () => {
       expect(bigquery.isTableAllowlisted('dataset3', 'table3')).toBe(false);
     });
+
+    it('harus mengenali tabel dari environment variable multiline (dengan newline dan spasi)', () => {
+      process.env.ALLOWLIST_TABLES = `
+        dataset_a.table_a,
+        dataset_b.table_b
+      `;
+      expect(bigquery.isTableAllowlisted('dataset_a', 'table_a')).toBe(true);
+      expect(bigquery.isTableAllowlisted('dataset_b', 'table_b')).toBe(true);
+    });
   });
 
   describe('listAllowedTables', () => {

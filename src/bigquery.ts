@@ -7,7 +7,8 @@ dotenv.config();
 export const isTableAllowlisted = (datasetId: string, tableId: string): boolean => {
   const allowlist = (process.env.ALLOWLIST_TABLES || '')
     .split(',')
-    .map(s => s.trim().toLowerCase());
+    .map(s => s.replace(/\s+/g, '').toLowerCase())
+    .filter(Boolean);
   const targetName = `${datasetId}.${tableId}`.toLowerCase();
   
   return allowlist.some(allowed => {
@@ -37,7 +38,7 @@ const bigquery = getBigQueryClient();
 // 1. List Allowed Tables
 export const listAllowedTables = async () => {
   const list = process.env.ALLOWLIST_TABLES || '';
-  const tablesConfig = list.split(',').map(s => s.trim()).filter(Boolean);
+  const tablesConfig = list.split(',').map(s => s.replace(/\s+/g, '')).filter(Boolean);
   
   const results = [];
   for (const tableConfig of tablesConfig) {
@@ -83,7 +84,7 @@ export const describeTable = async (datasetId: string, tableId: string) => {
   }
 
   // To properly fetch schema, we should find the exact project ID from the allowlist if provided
-  const allowlist = (process.env.ALLOWLIST_TABLES || '').split(',').map(s => s.trim());
+  const allowlist = (process.env.ALLOWLIST_TABLES || '').split(',').map(s => s.replace(/\s+/g, '')).filter(Boolean);
   const tableConfig = allowlist.find(t => t.endsWith(`${datasetId}.${tableId}`));
   const parts = tableConfig ? tableConfig.split('.') : [];
   const projectId = parts.length === 3 ? parts[0] : undefined;
@@ -177,7 +178,7 @@ export const executeReadonlyQuery = async (sql: string) => {
 // 5. Search Allowed Tables (Hybrid Metadata Search)
 export const searchAllowedTables = async (keyword: string) => {
   const list = process.env.ALLOWLIST_TABLES || '';
-  const tablesConfig = list.split(',').map(s => s.trim()).filter(Boolean);
+  const tablesConfig = list.split(',').map(s => s.replace(/\s+/g, '')).filter(Boolean);
   const lowercaseKeyword = keyword.toLowerCase();
   
   // 1. Saring tabel dari allowlist yang cocok dengan kata kunci

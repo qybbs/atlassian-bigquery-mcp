@@ -19,6 +19,7 @@ dist/
 *-key.json
 *.json
 !package.json
+!package-lock.json
 !tsconfig.json
 !docs/*.json
 

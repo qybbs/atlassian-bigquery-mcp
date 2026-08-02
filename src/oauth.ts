@@ -2,13 +2,12 @@ import express from 'express';
 import * as jose from 'jose';
 import crypto from 'crypto';
 
+import { validateEnv } from './config';
+
 // Master secret key used for symmetric JWE (encryption) and JWS (signing)
 const getSecretKey = (): Buffer => {
-  const key = process.env.MASTER_SECRET_KEY;
-  if (!key) {
-    throw new Error('MASTER_SECRET_KEY environment variable is not set');
-  }
-  return Buffer.from(key, 'base64');
+  validateEnv();
+  return Buffer.from(process.env.MASTER_SECRET_KEY!, 'base64');
 };
 
 // 1. Dynamic Client Registration (DCR - RFC 7591)

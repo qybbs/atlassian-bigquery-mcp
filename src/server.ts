@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { registerClient, authorizeUser, submitLogin, tokenExchange, handleOidcCallback } from './oauth';
 import { handleMcpRequest } from './mcp';
+import { validateEnv } from './config';
 
 // Load environment variables
 dotenv.config();
@@ -55,6 +56,13 @@ app.get('/health', (req, res) => {
 
 // Start Server
 if (process.env.NODE_ENV !== 'test') {
+  try {
+    validateEnv();
+  } catch (error: any) {
+    console.error(`[FATAL] Startup validation failed: ${error.message}`);
+    process.exit(1);
+  }
+
   app.listen(port, () => {
     console.log(`Atlassian BigQuery MCP Server is running at http://localhost:${port}`);
     console.log(`DCR Endpoint: http://localhost:${port}/register`);

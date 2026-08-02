@@ -1,6 +1,9 @@
 // Export Express handlers for MCP
 export { handleMcpRequest, validateQuerySafety } from './mcp';
 
+// Export Configuration Validation
+export { validateEnv } from './config';
+
 // Export OAuth & DCR handlers
 export { 
   registerClient, 

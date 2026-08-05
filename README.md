@@ -114,12 +114,60 @@ This MCP server exposes the following custom tools to external clients (e.g., At
 ## Enterprise Integration Setup
 
 ### 1. Microsoft Entra ID (SSO) Integration
-To enable OAuth 2.1 authorization for internal employees:
-1. Go to **Azure Portal > Microsoft Entra ID > App Registrations**.
-2. Create a new registration.
-3. Under Authentication, add a **Web** platform and set the Redirect URI to `https://<your-mcp-domain>/oauth/callback`.
-4. Generate a Client Secret.
-5. Configure your `.env` file with `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, and endpoints corresponding to your tenant.
+
+To enable and test Microsoft Entra ID (formerly Azure Active Directory) as your Single Sign-On (SSO) OIDC provider, follow these steps:
+
+#### Step 1: Register your Application in Microsoft Entra ID
+1. Log in to the [Microsoft Entra admin center](https://entra.microsoft.com/) or Azure Portal.
+2. Go to **Identity** > **Applications** > **App registrations** and select **New registration**.
+3. Fill in the registration form:
+   - **Name**: e.g., `BigQuery MCP Server`.
+   - **Supported account types**: Choose who can use the API (e.g., *Accounts in this organizational directory only* for single-tenant or *Accounts in any organizational directory* for multi-tenant).
+   - **Redirect URI**: Select **Web** from the dropdown and input your public endpoint callback:
+     - For production: `https://<your-mcp-domain>/oauth/callback`
+     - For local testing: `https://<your-tunnel-domain>.ngrok-free.app/oauth/callback` *(Note: Entra ID requires HTTPS for redirect URIs, so local testing requires a tunnel like ngrok or Cloudflare Tunnel).*
+4. Click **Register**.
+
+#### Step 2: Create a Client Secret
+1. In your app registration page, navigate to **Certificates & secrets** > **Client secrets** tab.
+2. Click **New client secret**, enter a description, set your preferred expiration, and click **Add**.
+3. **Important**: Instantly copy the secret value under the **Value** column. You will not be able to retrieve it after leaving this screen.
+
+#### Step 3: Get Client & Tenant ID
+1. Navigate back to the app **Overview** page.
+2. Copy the **Application (client) ID**.
+3. Copy the **Directory (tenant) ID** (required for single-tenant setup).
+
+#### Step 4: Verify API Permissions
+1. Navigate to **API permissions**.
+2. By default, `User.Read` permission is added. Double check that the application supports the standard OpenID Connect permissions: `openid`, `email`, and `profile` scopes (which are typically requested and approved by default under Microsoft Graph).
+
+#### Step 5: Configure the `.env` File
+Update your `.env` file with the OIDC details obtained:
+```env
+# Set provider to OIDC
+AUTH_PROVIDER=OIDC
+
+# Microsoft Entra ID credentials
+OIDC_CLIENT_ID="<Application (client) ID>"
+OIDC_CLIENT_SECRET="<Client Secret Value>"
+
+# Endpoints (Replace {tenant} with your Directory (tenant) ID or 'common'/'organizations' for multi-tenant)
+OIDC_AUTHORIZATION_ENDPOINT="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+OIDC_TOKEN_ENDPOINT="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+
+# Public Redirect URI
+OIDC_REDIRECT_URI="https://<your-tunnel-domain>/oauth/callback"
+
+# Optional: Restrict authentication to corporate email domains only
+ALLOWED_EMAIL_DOMAINS="yourcompany.com,anotheralloweddomain.com"
+```
+
+#### Step 6: Test the SSO Flow
+1. If testing locally, start your tunnel (e.g., `ngrok http 3000` or `cloudflared tunnel --url http://localhost:3000`) and ensure the redirect URL in both Azure and `.env` match the tunnel address.
+2. Run your server locally in development mode: `npm run dev`.
+3. When your client triggers the authorization flow (by visiting `https://<your-mcp-domain>/oauth/authorize?...`), the server will detect `AUTH_PROVIDER=OIDC` and redirect you to the Microsoft login screen.
+4. Sign in with your Microsoft account. On success, Microsoft redirects to your `/oauth/callback` endpoint, where your server validates the email against `ALLOWED_EMAIL_DOMAINS` and routes the user back to the client application.
 
 ### 2. Atlassian Administration Integration
 To securely connect this MCP server to your Atlassian workspace, it must meet these requirements:

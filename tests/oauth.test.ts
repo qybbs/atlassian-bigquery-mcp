@@ -8,6 +8,8 @@ describe('OAuth Endpoints', () => {
     process.env.AUTH_PROVIDER = 'MOCK';
     process.env.MOCK_USER_EMAIL = 'test@example.com';
     process.env.MOCK_USER_PASSWORD = 'password123';
+    process.env.GCP_PROJECT_ID = 'mock-project';
+    process.env.ALLOWLIST_TABLES = 'dataset.mock_table';
   });
 
   let clientId: string;

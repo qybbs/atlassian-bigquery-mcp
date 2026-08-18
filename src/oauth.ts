@@ -10,6 +10,17 @@ const getSecretKey = (): Buffer => {
   return Buffer.from(process.env.MASTER_SECRET_KEY!, 'base64');
 };
 
+const parseCookies = (cookieHeader?: string): Record<string, string> => {
+  const list: Record<string, string> = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const key = parts.shift()?.trim();
+    if (key) list[key] = decodeURIComponent(parts.join('='));
+  });
+  return list;
+};
+
 const escapeHtml = (unsafe: any): string => {
   if (unsafe === undefined || unsafe === null) return '';
   return String(unsafe)
@@ -86,8 +97,8 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Missing required OAuth parameters (client_id, redirect_uri, code_challenge)');
     }
 
-    // Strict validation of incoming parameters to prevent XSS
-    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
+    // Strict validation of incoming parameters to prevent XSS (JWE has 5 parts, part 2 is empty for alg: 'dir')
+    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
       return res.status(400).send('Invalid client_id format');
     }
     if (!/^[a-zA-Z0-9_-]{43,128}$/.test(code_challenge as string)) {
@@ -136,6 +147,26 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
 
       return res.redirect(oidcAuthUrl.toString());
     }
+
+    // AUTH_PROVIDER === MOCK
+    // Implement State-Cookie pattern for XSS protection
+    const flowToken = await new jose.EncryptJWT({
+      client_id,
+      redirect_uri: matchedUri,
+      state: String(state || '').replace(/[^a-zA-Z0-9_-]/g, ''),
+      code_challenge,
+      code_challenge_method: code_challenge_method === 'plain' ? 'plain' : 'S256',
+    })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setIssuedAt()
+      .setExpirationTime('15m')
+      .encrypt(secretKey);
+
+    const isSecure = req.protocol === 'https' || req.secure;
+    res.setHeader('Set-Cookie', `oauth_flow=${flowToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=900${isSecure ? '; Secure' : ''}`);
+
+    const isError = req.query.error === 'login_failed';
+    const errorMessage = isError ? '<div class="error-msg" style="padding:10px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);border-radius:6px;margin-bottom:15px;text-align:center;">Otorisasi Gagal: Kredensial Salah</div>' : '';
 
     // Render simple, premium-looking login form (Corporate theme: Sleek Dark / Blue accents)
     const html = `
@@ -239,13 +270,8 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <div class="logo">Corporate</div>
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
+          ${errorMessage}
           <form action="/oauth/login" method="POST">
-            <!-- Hidden OAuth state -->
-            <input type="hidden" name="client_id" value="${escapeHtml(client_id)}">
-            <input type="hidden" name="redirect_uri" value="${escapeHtml(matchedUri)}">
-            <input type="hidden" name="state" value="${escapeHtml(String(state || '').replace(/[^a-zA-Z0-9_-]/g, ''))}">
-            <input type="hidden" name="code_challenge" value="${escapeHtml(code_challenge)}">
-            <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method === 'plain' ? 'plain' : 'S256')}">
             
             <div class="form-group">
               <label for="email">Email</label>
@@ -365,55 +391,42 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
 // 3. OAuth 2.1 POST /oauth/login (Handles Mock Login submission & redirects with Auth Code)
 export const submitLogin = async (req: express.Request, res: express.Response) => {
   try {
-    const {
-      client_id,
-      redirect_uri,
-      state,
-      code_challenge,
-      code_challenge_method,
-      email,
-      password,
-    } = req.body;
+    const cookies = parseCookies(req.headers.cookie);
+    const flowToken = cookies['oauth_flow'];
+    
+    if (!flowToken) {
+      return res.status(400).send('Session expired or invalid flow. Please try logging in again.');
+    }
 
     const secretKey = getSecretKey();
-    let clientMetadata: any;
+    let flowData: any;
 
-    // Strict validation
-    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
-      return res.status(400).send('Invalid client_id format');
-    }
-
-    // Decrypt client_id and validate redirect_uri to prevent Open Redirect attacks
     try {
-      const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
-      clientMetadata = payload;
+      const { payload } = await jose.jwtDecrypt(flowToken, secretKey);
+      flowData = payload;
     } catch (e: any) {
-      console.warn('SubmitLogin decryption failed:', e.message);
-      return res.status(400).send('Invalid client_id');
+      console.warn('Flow token decryption failed:', e.message);
+      return res.status(400).send('Invalid session state');
     }
 
-    const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
-    if (!matchedUri) {
-      return res.status(400).send('Redirect URI not registered for this client');
-    }
+    const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = flowData;
+    const { email, password } = req.body;
 
     const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
     const mockPassword = process.env.MOCK_USER_PASSWORD || 'secret-password';
 
     // Verify mock credentials
     if (email !== mockEmail || password !== mockPassword) {
-      const cleanState = String(state || '').replace(/[^a-zA-Z0-9_-]/g, '');
-      const cleanMethod = code_challenge_method === 'plain' ? 'plain' : 'S256';
-      return res.status(401).send(`
-        <h3>Otorisasi Gagal: Kredensial Salah</h3>
-        <a href="/oauth/authorize?client_id=${escapeHtml(encodeURIComponent(client_id as string))}&redirect_uri=${escapeHtml(encodeURIComponent(matchedUri))}&code_challenge=${escapeHtml(encodeURIComponent(code_challenge as string))}&code_challenge_method=${cleanMethod}&state=${cleanState}">Coba Lagi</a>
-      `);
+      // Clear cookie and redirect back with error
+      res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+      const authorizeUrl = `/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}&error=login_failed`;
+      return res.redirect(authorizeUrl);
     }
 
     // Stateless Authorization Code: Encrypted short-lived JWE (valid for 5 minutes)
     const authorization_code = await new jose.EncryptJWT({
       client_id,
-      redirect_uri: matchedUri,
+      redirect_uri,
       email,
       code_challenge,
       code_challenge_method,
@@ -423,15 +436,17 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       .setExpirationTime('5m') // Auth code expires in 5 minutes
       .encrypt(secretKey);
 
+    // Clear the oauth_flow cookie
+    res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+
     // Redirect user back to Atlassian redirect URI with auth code & state
-    const redirectUrl = new URL(matchedUri);
+    const redirectUrl = new URL(redirect_uri);
     redirectUrl.searchParams.append('code', authorization_code);
-    const cleanState = String(state || '').replace(/[^a-zA-Z0-9_-]/g, '');
-    if (cleanState) {
-      redirectUrl.searchParams.append('state', cleanState);
+    if (state) {
+      redirectUrl.searchParams.append('state', state);
     }
 
-    console.log(`[OAuth] User logged in successfully. Redirecting.`);
+    console.log(`[Mock SSO] User logged in: ${email}. Redirecting back to client.`);
     return res.redirect(redirectUrl.toString());
   } catch (err: any) {
     console.error('Submit Login Error:', err);

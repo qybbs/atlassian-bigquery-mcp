@@ -9,6 +9,7 @@ import { validateEnv } from './config';
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by'); // Prevent Express version disclosure
 const port = process.env.PORT || 3000;
 
 // Trust proxy to correctly identify HTTPS protocol when running behind reverse proxies like ngrok

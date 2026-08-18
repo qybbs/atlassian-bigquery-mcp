@@ -98,40 +98,9 @@ const writeAuditLog = (log: {
 };
 
 // Express handler to process Model Context Protocol (MCP) JSON-RPC requests
-export const handleMcpRequest = async (req: express.Request, res: express.Response) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized: Missing or invalid Bearer token' } });
-  }
 
-  const token = authHeader.split(' ')[1];
-  const secretKey = getSecretKey();
-  let userEmail: string;
-
-  // Validate OAuth 2.1 JWT Access Token
-  try {
-    const { payload } = await jose.jwtVerify(token, secretKey);
-    userEmail = payload.email as string;
-  } catch (e: any) {
-    console.warn('[MCP Auth] Invalid token access attempt:', sanitizeLogString(e.message));
-    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Unauthorized: Token validation failed (${sanitizeLogString(e.message)})` } });
-  }
-
-  const { jsonrpc, id, method, params } = req.body;
-
-
-  if (jsonrpc !== '2.0') {
-    return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
-  }
-
-  console.log(`[MCP Router] User: ${sanitizeLogString(userEmail)} | Method: ${sanitizeLogString(method)} | ID: ${sanitizeLogString(id)}`);
-  console.log(`[MCP Router] Request Body: ${sanitizeLogString(JSON.stringify(req.body))}`);
-
-  try {
-    switch (method) {
-      // 0. MCP Connection Initialization
-      case 'initialize': {
-        writeAuditLog({
+const handleInitialize = (id: any, userEmail: string, res: express.Response) => {
+  writeAuditLog({
           requestId: id,
           userEmail,
           toolName: 'initialize',
@@ -151,15 +120,10 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             },
           },
         });
-      }
+};
 
-      case 'notifications/initialized': {
-        return res.status(202).end();
-      }
-
-      // 1. List Available Tools
-      case 'tools/list': {
-        return res.status(200).json({
+const handleToolsList = (id: any, res: express.Response) => {
+  return res.status(200).json({
           jsonrpc: '2.0',
           id,
           result: {
@@ -220,11 +184,10 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             ],
           },
         });
-      }
+};
 
-      // 2. Call Tool Execution
-      case 'tools/call': {
-        const toolName = params?.name;
+const handleToolsCall = async (id: any, userEmail: string, params: any, res: express.Response) => {
+  const toolName = params?.name;
         const args = params?.arguments || {};
 
         if (!toolName) {
@@ -563,7 +526,52 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
             });
           }
         }
-      }
+};
+
+export const handleMcpRequest = async (req: express.Request, res: express.Response) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized: Missing or invalid Bearer token' } });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const secretKey = getSecretKey();
+  let userEmail: string;
+
+  // Validate OAuth 2.1 JWT Access Token
+  try {
+    const { payload } = await jose.jwtVerify(token, secretKey);
+    userEmail = payload.email as string;
+  } catch (e: any) {
+    console.warn('[MCP Auth] Invalid token access attempt:', sanitizeLogString(e.message));
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Unauthorized: Token validation failed (${sanitizeLogString(e.message)})` } });
+  }
+
+  const { jsonrpc, id, method, params } = req.body;
+
+
+  if (jsonrpc !== '2.0') {
+    return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
+  }
+
+  console.log(`[MCP Router] User: ${sanitizeLogString(userEmail)} | Method: ${sanitizeLogString(method)} | ID: ${sanitizeLogString(id)}`);
+  console.log(`[MCP Router] Request Body: ${sanitizeLogString(JSON.stringify(req.body))}`);
+
+  try {
+    switch (method) {
+      // 0. MCP Connection Initialization
+      
+      case 'initialize':
+        return handleInitialize(id, userEmail, res);
+
+      case 'notifications/initialized':
+        return res.status(202).end();
+
+      case 'tools/list':
+        return handleToolsList(id, res);
+
+      case 'tools/call':
+        return await handleToolsCall(id, userEmail, params, res);
 
       default: {
         return res.status(404).json({

@@ -35,6 +35,40 @@ const getBigQueryClient = (): BigQuery => {
 
 const bigquery = getBigQueryClient();
 
+const getTableMetadata = async (tableConfig: string) => {
+  const parts = tableConfig.split('.');
+  if (parts.length !== 2 && parts.length !== 3) return null;
+
+  const projectId = parts.length === 3 ? parts[0] : undefined;
+  const datasetId = parts.length === 3 ? parts[1] : parts[0];
+  const tableId = parts.length === 3 ? parts[2] : parts[1];
+
+  try {
+    const dataset = projectId ? bigquery.dataset(datasetId, { projectId }) : bigquery.dataset(datasetId);
+    const table = dataset.table(tableId);
+    const [metadata] = await table.getMetadata();
+    
+    return {
+      table: tableConfig,
+      projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
+      dataset: datasetId,
+      name: tableId,
+      description: metadata.description || 'No description available',
+      type: metadata.type,
+      numRows: metadata.numRows ? Number.parseInt(metadata.numRows, 10) : undefined,
+    };
+  } catch (e: any) {
+    console.warn(`[BigQuery] Warning: Could not fetch metadata for allowlisted table "${tableConfig}":`, e.message);
+    return {
+      table: tableConfig,
+      projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
+      dataset: datasetId,
+      name: tableId,
+      description: `Allowlisted table. (Metadata unavailable: ${e.message})`,
+    };
+  }
+};
+
 // 1. List Allowed Tables
 export const listAllowedTables = async () => {
   const list = process.env.ALLOWLIST_TABLES || '';
@@ -42,37 +76,8 @@ export const listAllowedTables = async () => {
   
   const results = [];
   for (const tableConfig of tablesConfig) {
-    const parts = tableConfig.split('.');
-    if (parts.length === 2 || parts.length === 3) {
-      const projectId = parts.length === 3 ? parts[0] : undefined;
-      const datasetId = parts.length === 3 ? parts[1] : parts[0];
-      const tableId = parts.length === 3 ? parts[2] : parts[1];
-      try {
-        const dataset = projectId ? bigquery.dataset(datasetId, { projectId }) : bigquery.dataset(datasetId);
-        const table = dataset.table(tableId);
-        const [metadata] = await table.getMetadata();
-        
-        results.push({
-          table: tableConfig,
-          projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
-          dataset: datasetId,
-          name: tableId,
-          description: metadata.description || 'No description available',
-          type: metadata.type,
-          numRows: metadata.numRows ? Number.parseInt(metadata.numRows, 10) : undefined,
-        });
-      } catch (e: any) {
-        console.warn(`[BigQuery] Warning: Could not fetch metadata for allowlisted table "${tableConfig}":`, e.message);
-        // Fallback if metadata cannot be fetched (e.g. key file not configured yet or permissions missing)
-        results.push({
-          table: tableConfig,
-          projectId: projectId || process.env.GCP_PROJECT_ID || 'unknown',
-          dataset: datasetId,
-          name: tableId,
-          description: `Allowlisted table. (Metadata unavailable: ${e.message})`,
-        });
-      }
-    }
+    const metadata = await getTableMetadata(tableConfig);
+    if (metadata) results.push(metadata);
   }
   return results;
 };

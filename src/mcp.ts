@@ -186,6 +186,85 @@ const handleToolsList = (id: any, res: express.Response) => {
         });
 };
 
+const handleQueryTool = async (
+  id: any,
+  userEmail: string,
+  toolName: string,
+  args: any,
+  res: express.Response,
+  executeFn: (sql: string, safety: any) => Promise<any>,
+  errorPrefix = 'Error'
+) => {
+  const { sql } = args;
+  if (!sql) {
+    writeAuditLog({
+      requestId: id,
+      userEmail,
+      toolName,
+      status: 'REJECTED',
+      denialReason: 'Error: sql query parameter is required.',
+    });
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
+        isError: true,
+      },
+    });
+  }
+
+  const safety = validateQuerySafety(sql);
+  if (!safety.safe) {
+    writeAuditLog({
+      requestId: id,
+      userEmail,
+      toolName,
+      sql,
+      tablesTouched: safety.detectedTables,
+      status: 'REJECTED',
+      denialReason: safety.reason,
+    });
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
+        isError: true,
+      },
+    });
+  }
+
+  try {
+    const resultText = await executeFn(sql, safety);
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{ type: 'text', text: resultText }],
+      },
+    });
+  } catch (err: any) {
+    writeAuditLog({
+      requestId: id,
+      userEmail,
+      toolName,
+      sql,
+      tablesTouched: safety.detectedTables,
+      status: 'FAILED',
+      error: err.message,
+    });
+    return res.status(200).json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        content: [{ type: 'text', text: `${errorPrefix}: ${err.message}` }],
+        isError: true,
+      },
+    });
+  }
+};
+
 const handleToolsCall = async (id: any, userEmail: string, params: any, res: express.Response) => {
   const toolName = params?.name;
         const args = params?.arguments || {};
@@ -292,48 +371,7 @@ const handleToolsCall = async (id: any, userEmail: string, params: any, res: exp
           }
 
           case 'estimate_query_cost': {
-            const { sql } = args;
-            if (!sql) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'estimate_query_cost',
-                status: 'REJECTED',
-                denialReason: 'Error: sql query parameter is required.',
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
-                  isError: true,
-                },
-              });
-            }
-
-            // Policy Engine verification
-            const safety = validateQuerySafety(sql);
-            if (!safety.safe) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'estimate_query_cost',
-                sql,
-                tablesTouched: safety.detectedTables,
-                status: 'REJECTED',
-                denialReason: safety.reason,
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
-                  isError: true,
-                },
-              });
-            }
-
-            try {
+            return await handleQueryTool(id, userEmail, 'estimate_query_cost', args, res, async (sql, safety) => {
               const estimate = await estimateQueryCost(sql);
               if (estimate.valid) {
                 writeAuditLog({
@@ -356,77 +394,12 @@ const handleToolsCall = async (id: any, userEmail: string, params: any, res: exp
                   error: estimate.error,
                 });
               }
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: JSON.stringify(estimate, null, 2) }],
-                },
-              });
-            } catch (err: any) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'estimate_query_cost',
-                sql,
-                tablesTouched: safety.detectedTables,
-                status: 'FAILED',
-                error: err.message,
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Error: ${err.message}` }],
-                  isError: true,
-                },
-              });
-            }
+              return JSON.stringify(estimate, null, 2);
+            });
           }
 
           case 'execute_readonly_query': {
-            const { sql } = args;
-            if (!sql) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'execute_readonly_query',
-                status: 'REJECTED',
-                denialReason: 'Error: sql query parameter is required.',
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
-                  isError: true,
-                },
-              });
-            }
-
-            // Policy Engine verification
-            const safety = validateQuerySafety(sql);
-            if (!safety.safe) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'execute_readonly_query',
-                sql,
-                tablesTouched: safety.detectedTables,
-                status: 'REJECTED',
-                denialReason: safety.reason,
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
-                  isError: true,
-                },
-              });
-            }
-
-            try {
+            return await handleQueryTool(id, userEmail, 'execute_readonly_query', args, res, async (sql, safety) => {
               const rows = await executeReadonlyQuery(sql);
               writeAuditLog({
                 requestId: id,
@@ -437,32 +410,8 @@ const handleToolsCall = async (id: any, userEmail: string, params: any, res: exp
                 status: 'SUCCESS',
                 rowCount: rows.length,
               });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }],
-                },
-              });
-            } catch (err: any) {
-              writeAuditLog({
-                requestId: id,
-                userEmail,
-                toolName: 'execute_readonly_query',
-                sql,
-                tablesTouched: safety.detectedTables,
-                status: 'FAILED',
-                error: err.message,
-              });
-              return res.status(200).json({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                  content: [{ type: 'text', text: `Database Error: ${err.message}` }],
-                  isError: true,
-                },
-              });
-            }
+              return JSON.stringify(rows, null, 2);
+            }, 'Database Error');
           }
 
           case 'search_allowed_tables': {

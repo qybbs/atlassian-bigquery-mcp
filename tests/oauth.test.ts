@@ -96,8 +96,58 @@ describe('OAuth Endpoints', () => {
       expect(response.text).toContain('Session expired or invalid flow');
     });
 
-    // NOTE: Testing successful submitLogin requires parsing the cookie from authorizeUser
-    // which is complex to mock in this basic suite. We just test the rejection to bump coverage.
+    it('harus berhasil login dengan kredensial yang benar', async () => {
+      const authResponse = await request(app)
+        .get('/oauth/authorize')
+        .query({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          state: 'xyz123',
+          code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
+          code_challenge_method: 'S256'
+        });
+      
+      const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
+
+      const loginResponse = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', cookie)
+        .send({
+          email: 'test@example.com',
+          password: 'password123'
+        });
+
+      expect(loginResponse.status).toBe(302);
+      expect(loginResponse.headers.location).toContain('code=');
+      expect(loginResponse.headers.location).toContain('state=xyz123');
+    });
+
+    it('harus menolak login dan redirect kembali jika kredensial salah', async () => {
+      const authResponse = await request(app)
+        .get('/oauth/authorize')
+        .query({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          state: 'xyz123',
+          code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
+          code_challenge_method: 'S256'
+        });
+      
+      const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
+
+      const loginResponse = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', cookie)
+        .send({
+          email: 'test@example.com',
+          password: 'wrong-password'
+        });
+
+      expect(loginResponse.status).toBe(302);
+      expect(loginResponse.headers.location).toContain('error=login_failed');
+    });
   });
 
   describe('POST /oauth/token', () => {

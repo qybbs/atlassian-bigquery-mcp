@@ -25,5 +25,3 @@ dist/
 
 # Gemini Agent Cache
 .gemini/
-
-docs/

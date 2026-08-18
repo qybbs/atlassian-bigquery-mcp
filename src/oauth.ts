@@ -1,6 +1,6 @@
 import express from 'express';
 import * as jose from 'jose';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 
 import { validateEnv } from './config';
 
@@ -13,11 +13,11 @@ const getSecretKey = (): Buffer => {
 const escapeHtml = (unsafe: any): string => {
   if (unsafe === undefined || unsafe === null) return '';
   return String(unsafe)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 };
 
 // 1. Dynamic Client Registration (DCR - RFC 7591)
@@ -52,7 +52,7 @@ export const registerClient = async (req: express.Request, res: express.Response
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
-    console.log(`[DCR] Registered client "${client_name}" statelessly.`);
+    console.log(`[DCR] Registered client statelessly.`);
 
     return res.status(201).json({
       client_id,
@@ -86,6 +86,14 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Missing required OAuth parameters (client_id, redirect_uri, code_challenge)');
     }
 
+    // Strict validation of incoming parameters to prevent XSS
+    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
+      return res.status(400).send('Invalid client_id format');
+    }
+    if (!/^[a-zA-Z0-9_-]{43,128}$/.test(code_challenge as string)) {
+      return res.status(400).send('Invalid code_challenge format');
+    }
+
     const secretKey = getSecretKey();
     let clientMetadata: any;
 
@@ -93,13 +101,14 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
     try {
       const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
       clientMetadata = payload;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn('Invalid client_id decryption attempt:', e.message);
       return res.status(400).send('Invalid client_id');
     }
 
-    // Verify requested redirect_uri matches registered URIs
-    const isRedirectUriRegistered = clientMetadata.redirect_uris.includes(redirect_uri as string);
-    if (!isRedirectUriRegistered) {
+    // Verify requested redirect_uri matches registered URIs and use trusted matched URI
+    const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
+    if (!matchedUri) {
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
@@ -233,10 +242,10 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <form action="/oauth/login" method="POST">
             <!-- Hidden OAuth state -->
             <input type="hidden" name="client_id" value="${escapeHtml(client_id)}">
-            <input type="hidden" name="redirect_uri" value="${escapeHtml(redirect_uri)}">
-            <input type="hidden" name="state" value="${escapeHtml(state || '')}">
+            <input type="hidden" name="redirect_uri" value="${escapeHtml(matchedUri)}">
+            <input type="hidden" name="state" value="${escapeHtml(String(state || '').replace(/[^a-zA-Z0-9_-]/g, ''))}">
             <input type="hidden" name="code_challenge" value="${escapeHtml(code_challenge)}">
-            <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method || 'S256')}">
+            <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method === 'plain' ? 'plain' : 'S256')}">
             
             <div class="form-group">
               <label for="email">Email</label>
@@ -276,7 +285,8 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
     try {
       const { payload } = await jose.jwtDecrypt(state as string, secretKey);
       atlassianParams = payload;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn('OIDC State decryption failed:', e.message);
       return res.status(400).send('Invalid state token');
     }
 
@@ -296,8 +306,8 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
     });
 
     if (!tokenResponse.ok) {
-      const errText = await tokenResponse.text();
-      console.error('OIDC Token Error:', errText);
+      await tokenResponse.text();
+      console.error('OIDC Token Error: Provider returned failure status.');
       return res.status(500).send('Failed to exchange OIDC code');
     }
 
@@ -368,16 +378,22 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
     const secretKey = getSecretKey();
     let clientMetadata: any;
 
+    // Strict validation
+    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
+      return res.status(400).send('Invalid client_id format');
+    }
+
     // Decrypt client_id and validate redirect_uri to prevent Open Redirect attacks
     try {
       const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
       clientMetadata = payload;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn('SubmitLogin decryption failed:', e.message);
       return res.status(400).send('Invalid client_id');
     }
 
-    const isRedirectUriRegistered = clientMetadata.redirect_uris.includes(redirect_uri as string);
-    if (!isRedirectUriRegistered) {
+    const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
+    if (!matchedUri) {
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
@@ -386,16 +402,18 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
 
     // Verify mock credentials
     if (email !== mockEmail || password !== mockPassword) {
+      const cleanState = String(state || '').replace(/[^a-zA-Z0-9_-]/g, '');
+      const cleanMethod = code_challenge_method === 'plain' ? 'plain' : 'S256';
       return res.status(401).send(`
         <h3>Otorisasi Gagal: Kredensial Salah</h3>
-        <a href="/oauth/authorize?client_id=${escapeHtml(encodeURIComponent(client_id))}&redirect_uri=${escapeHtml(encodeURIComponent(redirect_uri))}&code_challenge=${escapeHtml(encodeURIComponent(code_challenge))}&code_challenge_method=${escapeHtml(encodeURIComponent(code_challenge_method))}&state=${escapeHtml(encodeURIComponent(state))}">Coba Lagi</a>
+        <a href="/oauth/authorize?client_id=${escapeHtml(encodeURIComponent(client_id as string))}&redirect_uri=${escapeHtml(encodeURIComponent(matchedUri))}&code_challenge=${escapeHtml(encodeURIComponent(code_challenge as string))}&code_challenge_method=${cleanMethod}&state=${cleanState}">Coba Lagi</a>
       `);
     }
 
     // Stateless Authorization Code: Encrypted short-lived JWE (valid for 5 minutes)
     const authorization_code = await new jose.EncryptJWT({
       client_id,
-      redirect_uri,
+      redirect_uri: matchedUri,
       email,
       code_challenge,
       code_challenge_method,
@@ -406,13 +424,14 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       .encrypt(secretKey);
 
     // Redirect user back to Atlassian redirect URI with auth code & state
-    const redirectUrl = new URL(redirect_uri);
+    const redirectUrl = new URL(matchedUri);
     redirectUrl.searchParams.append('code', authorization_code);
-    if (state) {
-      redirectUrl.searchParams.append('state', state);
+    const cleanState = String(state || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (cleanState) {
+      redirectUrl.searchParams.append('state', cleanState);
     }
 
-    console.log(`[OAuth] User logged in: ${email}. Redirecting back to Atlassian.`);
+    console.log(`[OAuth] User logged in successfully. Redirecting.`);
     return res.redirect(redirectUrl.toString());
   } catch (err: any) {
     console.error('Submit Login Error:', err);
@@ -494,7 +513,7 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
     return res.status(200).json({
       access_token,
       token_type: 'Bearer',
-      expires_in: parseInt(process.env.TOKEN_EXPIRATION_SECONDS || '3600', 10),
+      expires_in: Number.parseInt(process.env.TOKEN_EXPIRATION_SECONDS || '3600', 10),
     });
   } catch (err: any) {
     console.error('Token Exchange Error:', err);

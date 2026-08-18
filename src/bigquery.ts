@@ -59,7 +59,7 @@ export const listAllowedTables = async () => {
           name: tableId,
           description: metadata.description || 'No description available',
           type: metadata.type,
-          numRows: metadata.numRows ? parseInt(metadata.numRows, 10) : undefined,
+          numRows: metadata.numRows ? Number.parseInt(metadata.numRows, 10) : undefined,
         });
       } catch (e: any) {
         console.warn(`[BigQuery] Warning: Could not fetch metadata for allowlisted table "${tableConfig}":`, e.message);
@@ -136,7 +136,7 @@ export const estimateQueryCost = async (sql: string) => {
       dryRun: true,
     });
     
-    const bytes = parseInt(job.metadata.statistics.query.totalBytesProcessed || '0', 10);
+    const bytes = Number.parseInt(job.metadata.statistics.query.totalBytesProcessed || '0', 10);
     const estimateGb = bytes / (1024 * 1024 * 1024);
     const costUsd = (estimateGb * 6.25) / 1000; // $6.25 per TB = $0.00625 per GB
 

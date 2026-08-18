@@ -23,7 +23,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, or backend-to-backend calls)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
       return callback(null, true);
     } else {
       return callback(new Error('Not allowed by CORS'), false);

@@ -10,6 +10,16 @@ const getSecretKey = (): Buffer => {
   return Buffer.from(process.env.MASTER_SECRET_KEY!, 'base64');
 };
 
+const escapeHtml = (unsafe: any): string => {
+  if (unsafe === undefined || unsafe === null) return '';
+  return String(unsafe)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 // 1. Dynamic Client Registration (DCR - RFC 7591)
 export const registerClient = async (req: express.Request, res: express.Response) => {
   try {
@@ -222,15 +232,15 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <div class="subtitle">Personal project test login</div>
           <form action="/oauth/login" method="POST">
             <!-- Hidden OAuth state -->
-            <input type="hidden" name="client_id" value="${client_id}">
-            <input type="hidden" name="redirect_uri" value="${redirect_uri}">
-            <input type="hidden" name="state" value="${state || ''}">
-            <input type="hidden" name="code_challenge" value="${code_challenge}">
-            <input type="hidden" name="code_challenge_method" value="${code_challenge_method || 'S256'}">
+            <input type="hidden" name="client_id" value="${escapeHtml(client_id)}">
+            <input type="hidden" name="redirect_uri" value="${escapeHtml(redirect_uri)}">
+            <input type="hidden" name="state" value="${escapeHtml(state || '')}">
+            <input type="hidden" name="code_challenge" value="${escapeHtml(code_challenge)}">
+            <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method || 'S256')}">
             
             <div class="form-group">
               <label for="email">Email</label>
-              <input type="email" id="email" name="email" value="${process.env.MOCK_USER_EMAIL || 'user@example.com'}" required>
+              <input type="email" id="email" name="email" value="${escapeHtml(process.env.MOCK_USER_EMAIL || 'user@example.com')}" required>
             </div>
             
             <div class="form-group">
@@ -355,6 +365,22 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       password,
     } = req.body;
 
+    const secretKey = getSecretKey();
+    let clientMetadata: any;
+
+    // Decrypt client_id and validate redirect_uri to prevent Open Redirect attacks
+    try {
+      const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
+      clientMetadata = payload;
+    } catch (e) {
+      return res.status(400).send('Invalid client_id');
+    }
+
+    const isRedirectUriRegistered = clientMetadata.redirect_uris.includes(redirect_uri as string);
+    if (!isRedirectUriRegistered) {
+      return res.status(400).send('Redirect URI not registered for this client');
+    }
+
     const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
     const mockPassword = process.env.MOCK_USER_PASSWORD || 'secret-password';
 
@@ -362,11 +388,9 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
     if (email !== mockEmail || password !== mockPassword) {
       return res.status(401).send(`
         <h3>Otorisasi Gagal: Kredensial Salah</h3>
-        <a href="/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}">Coba Lagi</a>
+        <a href="/oauth/authorize?client_id=${escapeHtml(encodeURIComponent(client_id))}&redirect_uri=${escapeHtml(encodeURIComponent(redirect_uri))}&code_challenge=${escapeHtml(encodeURIComponent(code_challenge))}&code_challenge_method=${escapeHtml(encodeURIComponent(code_challenge_method))}&state=${escapeHtml(encodeURIComponent(state))}">Coba Lagi</a>
       `);
     }
-
-    const secretKey = getSecretKey();
 
     // Stateless Authorization Code: Encrypted short-lived JWE (valid for 5 minutes)
     const authorization_code = await new jose.EncryptJWT({

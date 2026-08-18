@@ -15,7 +15,7 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
   const cleanSql = sql.trim().toLowerCase();
   
   // 1. Remove comments (both block /* */ and inline -- comments) to prevent evasion
-  const sqlWithoutComments = cleanSql.replace(/\/\*[\s\S]*?\*\/|--.*$/gm, '').trim();
+  const sqlWithoutComments = cleanSql.replace(/(?:\/\*[\s\S]*?\*\/)|(?:--.*$)/gm, '').trim();
   
   // Matches either `dataset.table`, `project.dataset.table`, or backticked versions: `dataset.table`
   const pattern = /`?([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)(?:\.([a-zA-Z0-9_-]+))?`?/g;
@@ -59,6 +59,11 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
   return { safe: true, detectedTables };
 };
 
+const sanitizeLogString = (val: any): string => {
+  if (val === undefined || val === null) return '';
+  return String(val).replace(/[\r\n]/g, '_');
+};
+
 // Helper for structured JSON logging (auto-parsed by Google Cloud Logging)
 const writeAuditLog = (log: {
   requestId: string | number;
@@ -72,11 +77,22 @@ const writeAuditLog = (log: {
   error?: string;
   rowCount?: number;
 }) => {
+  const safeUserEmail = sanitizeLogString(log.userEmail);
+  const safeToolName = sanitizeLogString(log.toolName);
+  const safeStatus = sanitizeLogString(log.status);
+
   const auditLogEntry = {
     timestamp: new Date().toISOString(),
     severity: log.status === 'FAILED' ? 'ERROR' : log.status === 'REJECTED' ? 'WARNING' : 'INFO',
-    message: `[MCP AUDIT] ${log.userEmail} executed ${log.toolName} - ${log.status}`,
-    audit: log,
+    message: `[MCP AUDIT] ${safeUserEmail} executed ${safeToolName} - ${safeStatus}`,
+    audit: {
+      ...log,
+      userEmail: safeUserEmail,
+      toolName: safeToolName,
+      sql: log.sql ? sanitizeLogString(log.sql) : undefined,
+      denialReason: log.denialReason ? sanitizeLogString(log.denialReason) : undefined,
+      error: log.error ? sanitizeLogString(log.error) : undefined,
+    },
   };
   console.log(JSON.stringify(auditLogEntry));
 };
@@ -97,8 +113,8 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
     const { payload } = await jose.jwtVerify(token, secretKey);
     userEmail = payload.email as string;
   } catch (e: any) {
-    console.warn('[MCP Auth] Invalid token access attempt:', e.message);
-    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Unauthorized: Token validation failed (${e.message})` } });
+    console.warn('[MCP Auth] Invalid token access attempt:', sanitizeLogString(e.message));
+    return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Unauthorized: Token validation failed (${sanitizeLogString(e.message)})` } });
   }
 
   const { jsonrpc, id, method, params } = req.body;
@@ -108,8 +124,8 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
     return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
   }
 
-  console.log(`[MCP Router] User: ${userEmail} | Method: ${method} | ID: ${id}`);
-  console.log(`[MCP Router] Request Body: ${JSON.stringify(req.body)}`);
+  console.log(`[MCP Router] User: ${sanitizeLogString(userEmail)} | Method: ${sanitizeLogString(method)} | ID: ${sanitizeLogString(id)}`);
+  console.log(`[MCP Router] Request Body: ${sanitizeLogString(JSON.stringify(req.body))}`);
 
   try {
     switch (method) {

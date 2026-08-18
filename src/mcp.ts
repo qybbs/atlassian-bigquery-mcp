@@ -14,37 +14,40 @@ const getSecretKey = (): Buffer => {
 export const validateQuerySafety = (sql: string): { safe: boolean; reason?: string; detectedTables: string[] } => {
   const cleanSql = sql.trim().toLowerCase();
   
-  // 1. Remove comments (both block /* */ and inline -- comments) to prevent evasion
-  const sqlWithoutComments = cleanSql.replace(/(?:\/\*[\s\S]*?\*\/)|(?:--.*$)/gm, '').trim();
+  // 1. Remove comments (both block /* */ and inline -- comments) to prevent evasion without backtracking
+  const sqlWithoutComments = cleanSql.replace(/\/\*(?:\*[^\/]|[^*])*\*\/|--.*$/gm, '').trim();
   
-  // Matches either `dataset.table`, `project.dataset.table`, or backticked versions: `dataset.table`
-  const pattern = /`?([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)(?:\.([a-zA-Z0-9_-]+))?`?/g;
+  // 2. Strip backticks to simplify matching and prevent backtracking
+  const sqlCleaned = sqlWithoutComments.replace(/`/g, '');
+  
+  // Matches either `dataset.table`, `project.dataset.table`
+  const pattern = /\b([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)(?:\.([a-zA-Z0-9_-]+))?\b/g;
   let match;
   const detectedTables: string[] = [];
-  while ((match = pattern.exec(sqlWithoutComments)) !== null) {
+  while ((match = pattern.exec(sqlCleaned)) !== null) {
     const dataset = match[3] ? match[2] : match[1];
     const table = match[3] ? match[3] : match[2];
     detectedTables.push(`${dataset}.${table}`);
   }
 
-  // 2. Must start with SELECT or WITH ... SELECT
+  // 3. Must start with SELECT or WITH ... SELECT
   if (!sqlWithoutComments.startsWith('select') && !sqlWithoutComments.startsWith('with')) {
     return { safe: false, reason: 'Hanya query SELECT (atau WITH ... SELECT) yang diizinkan.', detectedTables };
   }
 
-  // 3. Denylist DDL/DML/Scripting keywords
+  // 4. Denylist DDL/DML/Scripting keywords
   const forbiddenKeywords = [
     'insert', 'update', 'delete', 'merge', 'create', 'drop', 'alter',
     'truncate', 'grant', 'revoke', 'declare', 'execute immediate', 'call'
   ];
   for (const word of forbiddenKeywords) {
-    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    const regex = new RegExp(String.raw`\b${word}\b`, 'i');
     if (regex.test(sqlWithoutComments)) {
       return { safe: false, reason: `Query mengandung keyword terlarang: "${word}"`, detectedTables };
     }
   }
 
-  // 4. Table Allowlist verification
+  // 5. Table Allowlist verification
   if (detectedTables.length === 0) {
     return { safe: false, reason: 'Tidak dapat mendeteksi tabel rujukan. Pastikan penulisan tabel menggunakan format `dataset.table`.', detectedTables };
   }
@@ -81,17 +84,28 @@ const writeAuditLog = (log: {
   const safeToolName = sanitizeLogString(log.toolName);
   const safeStatus = sanitizeLogString(log.status);
 
+  let severity: 'ERROR' | 'WARNING' | 'INFO' = 'INFO';
+  if (log.status === 'FAILED') {
+    severity = 'ERROR';
+  } else if (log.status === 'REJECTED') {
+    severity = 'WARNING';
+  }
+
   const auditLogEntry = {
     timestamp: new Date().toISOString(),
-    severity: log.status === 'FAILED' ? 'ERROR' : log.status === 'REJECTED' ? 'WARNING' : 'INFO',
+    severity,
     message: `[MCP AUDIT] ${safeUserEmail} executed ${safeToolName} - ${safeStatus}`,
     audit: {
-      ...log,
+      requestId: log.requestId,
       userEmail: safeUserEmail,
       toolName: safeToolName,
+      status: safeStatus,
       sql: log.sql ? sanitizeLogString(log.sql) : undefined,
       denialReason: log.denialReason ? sanitizeLogString(log.denialReason) : undefined,
       error: log.error ? sanitizeLogString(log.error) : undefined,
+      bytesEstimate: log.bytesEstimate,
+      rowCount: log.rowCount,
+      tablesTouched: log.tablesTouched ? log.tablesTouched.map(t => sanitizeLogString(t)) : undefined,
     },
   };
   console.log(JSON.stringify(auditLogEntry));
@@ -479,7 +493,7 @@ const handleToolsCall = async (id: any, userEmail: string, params: any, res: exp
 
 export const handleMcpRequest = async (req: express.Request, res: express.Response) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized: Missing or invalid Bearer token' } });
   }
 
@@ -503,8 +517,11 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
     return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
   }
 
-  console.log(`[MCP Router] User: ${sanitizeLogString(userEmail)} | Method: ${sanitizeLogString(method)} | ID: ${sanitizeLogString(id)}`);
-  console.log(`[MCP Router] Request Body: ${sanitizeLogString(JSON.stringify(req.body))}`);
+  const safeEmail = encodeURIComponent(userEmail || '');
+  const safeMethod = encodeURIComponent(method || '');
+  const safeId = encodeURIComponent(String(id || ''));
+  console.log(`[MCP Router] User: ${safeEmail} | Method: ${safeMethod} | ID: ${safeId}`);
+  console.log(`[MCP Router] Request length: ${req.body ? JSON.stringify(req.body).length : 0}`);
 
   try {
     switch (method) {

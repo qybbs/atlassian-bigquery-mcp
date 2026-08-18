@@ -148,8 +148,8 @@ export const estimateQueryCost = async (sql: string) => {
     return {
       valid: true,
       bytesScanned: bytes,
-      bytesScannedGb: parseFloat(estimateGb.toFixed(6)),
-      estimatedCostUsd: parseFloat(costUsd.toFixed(8)),
+      bytesScannedGb: Number.parseFloat(estimateGb.toFixed(6)),
+      estimatedCostUsd: Number.parseFloat(costUsd.toFixed(8)),
     };
   } catch (e: any) {
     return {
@@ -170,7 +170,7 @@ export const executeReadonlyQuery = async (sql: string) => {
 
   console.log(`[BigQuery] Executing job: ${job.id} with maxBytesBilled limit: ${maxBytesBilled}`);
   
-  const rowLimit = parseInt(process.env.ROW_LIMIT || '1000', 10);
+  const rowLimit = Number.parseInt(process.env.ROW_LIMIT || '1000', 10);
   
   // Enforce Row capping at the client-side retrieval level
   const [rows] = await job.getQueryResults({

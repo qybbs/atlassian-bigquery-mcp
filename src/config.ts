@@ -116,6 +116,6 @@ export const validateEnv = (): void => {
   validatePositiveInteger(process.env.TOKEN_EXPIRATION_SECONDS, 'TOKEN_EXPIRATION_SECONDS', errors);
 
   if (errors.length > 0) {
-    throw new Error('Environment validation failed:\\n' + errors.map(e => ` - ${e}`).join('\\n'));
+    throw new Error('Environment validation failed:\n' + errors.map(e => ` - ${e}`).join('\n'));
   }
 };

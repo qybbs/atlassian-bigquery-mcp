@@ -83,7 +83,7 @@ describe('bigquery module', () => {
   describe('listAllowedTables', () => {
     it('harus mengambil metadata dari tabel-tabel di allowlist', async () => {
       const tables = await bigquery.listAllowedTables();
-      expect(tables.length).toBe(2);
+      expect(tables).toHaveLength(2);
       expect(tables[0].name).toBe('table1');
       expect(tables[0].dataset).toBe('dataset1');
       expect(tables[0].description).toBe('Mock Description');
@@ -99,7 +99,7 @@ describe('bigquery module', () => {
     it('harus mengembalikan skema untuk tabel yang diizinkan', async () => {
       const schema = await bigquery.describeTable('dataset1', 'table1');
       expect(schema.table).toBe('dataset1.table1');
-      expect(schema.fields.length).toBe(2);
+      expect(schema.fields).toHaveLength(2);
       expect(schema.fields[0].name).toBe('id');
       expect(schema.partitionInfo?.type).toBe('TIME');
     });
@@ -118,7 +118,7 @@ describe('bigquery module', () => {
   describe('executeReadonlyQuery', () => {
     it('harus mengeksekusi query dan membatasi maxResults client-side', async () => {
       const results = await bigquery.executeReadonlyQuery('SELECT * FROM dataset1.table1');
-      expect(results.length).toBe(1);
+      expect(results).toHaveLength(1);
       expect(results[0].id).toBe('1');
     });
   });

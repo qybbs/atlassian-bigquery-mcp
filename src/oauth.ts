@@ -150,10 +150,11 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
 
     // AUTH_PROVIDER === MOCK
     // Implement State-Cookie pattern for XSS protection
+    const stateStr = typeof state === 'string' ? state : '';
     const flowToken = await new jose.EncryptJWT({
       client_id,
       redirect_uri: matchedUri,
-      state: String(state || '').replace(/[^a-zA-Z0-9_-]/g, ''),
+      state: stateStr.replace(/[^a-zA-Z0-9_-]/g, ''),
       code_challenge,
       code_challenge_method: code_challenge_method === 'plain' ? 'plain' : 'S256',
     })
@@ -457,7 +458,7 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
 // 4. OAuth 2.1 POST /oauth/token (Exchange Auth Code for JWT Access Token with PKCE Verification)
 export const tokenExchange = async (req: express.Request, res: express.Response) => {
   try {
-    let { grant_type, code, redirect_uri, client_id, code_verifier } = req.body;
+    let { grant_type, code, client_id, code_verifier } = req.body;
 
     // Support HTTP Basic Auth for client_id (Atlassian sometimes uses this instead of body parameter)
     if (!client_id && req.headers.authorization?.startsWith('Basic ')) {

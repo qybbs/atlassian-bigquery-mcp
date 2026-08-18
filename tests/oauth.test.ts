@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import request from 'supertest';
 import * as jose from 'jose';
+import crypto from 'crypto';
 import app from '../src/server';
 
 describe('OAuth Endpoints', () => {
@@ -252,6 +253,146 @@ describe('OAuth Endpoints', () => {
 
       expect(tokenResponse.status).toBe(200);
       expect(tokenResponse.body).toHaveProperty('access_token');
+    });
+
+    it('harus menolak jika code token tidak valid atau kedaluwarsa', async () => {
+      const response = await request(app)
+        .post('/oauth/token')
+        .send({
+          grant_type: 'authorization_code',
+          code: 'invalid.jwe.code',
+          client_id: clientId,
+          code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('invalid_grant');
+      expect(response.body.error_description).toContain('invalid or expired');
+    });
+
+    it('harus menolak jika client_id tidak cocok dengan code issuer', async () => {
+      const authResponse = await request(app)
+        .get('/oauth/authorize')
+        .query({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          state: 'xyz123',
+          code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
+          code_challenge_method: 'plain'
+        });
+      
+      const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
+
+      const loginResponse = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', cookie)
+        .send({
+          email: 'test@example.com',
+          password: 'password123'
+        });
+      
+      const redirectUrl = new URL(loginResponse.headers.location);
+      const code = redirectUrl.searchParams.get('code') || '';
+
+      const tokenResponse = await request(app)
+        .post('/oauth/token')
+        .send({
+          grant_type: 'authorization_code',
+          code,
+          client_id: 'different-client-id.part2.part3.part4.part5',
+          code_verifier: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
+          redirect_uri: redirectUri
+        });
+
+      expect(tokenResponse.status).toBe(400);
+      expect(tokenResponse.body.error).toBe('invalid_grant');
+      expect(tokenResponse.body.error_description).toContain('Client ID mismatch');
+    });
+
+    it('harus sukses melakukan token exchange dengan S256 PKCE challenge method', async () => {
+      const verifier = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123_verifier';
+      const challenge = crypto
+        .createHash('sha256')
+        .update(verifier)
+        .digest('base64url');
+
+      const authResponse = await request(app)
+        .get('/oauth/authorize')
+        .query({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          state: 'xyz123',
+          code_challenge: challenge,
+          code_challenge_method: 'S256'
+        });
+      
+      const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
+
+      const loginResponse = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', cookie)
+        .send({
+          email: 'test@example.com',
+          password: 'password123'
+        });
+      
+      const redirectUrl = new URL(loginResponse.headers.location);
+      const code = redirectUrl.searchParams.get('code') || '';
+
+      const tokenResponse = await request(app)
+        .post('/oauth/token')
+        .send({
+          grant_type: 'authorization_code',
+          code,
+          client_id: clientId,
+          code_verifier: verifier,
+          redirect_uri: redirectUri
+        });
+
+      expect(tokenResponse.status).toBe(200);
+      expect(tokenResponse.body).toHaveProperty('access_token');
+    });
+
+    it('harus menolak token exchange jika PKCE challenge tidak cocok', async () => {
+      const authResponse = await request(app)
+        .get('/oauth/authorize')
+        .query({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          state: 'xyz123',
+          code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
+          code_challenge_method: 'plain'
+        });
+      
+      const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
+
+      const loginResponse = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', cookie)
+        .send({
+          email: 'test@example.com',
+          password: 'password123'
+        });
+      
+      const redirectUrl = new URL(loginResponse.headers.location);
+      const code = redirectUrl.searchParams.get('code') || '';
+
+      const tokenResponse = await request(app)
+        .post('/oauth/token')
+        .send({
+          grant_type: 'authorization_code',
+          code,
+          client_id: clientId,
+          code_verifier: 'wrong-code-verifier-here-12345',
+          redirect_uri: redirectUri
+        });
+
+      expect(tokenResponse.status).toBe(400);
+      expect(tokenResponse.body.error).toBe('invalid_grant');
+      expect(tokenResponse.body.error_description).toContain('PKCE code verifier does not match challenge');
     });
   });
 

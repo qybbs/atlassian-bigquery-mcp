@@ -36,7 +36,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Simple Request Logging Middleware for debugging
 app.use((req, res, next) => {
-  console.log(`[HTTP] ${req.method} ${req.url}`);
+  const safeUrl = encodeURIComponent(req.url || '');
+  console.log(`[HTTP] ${req.method} ${safeUrl}`);
   next();
 });
 

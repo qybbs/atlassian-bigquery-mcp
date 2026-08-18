@@ -61,7 +61,7 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
 
 const sanitizeLogString = (val: any): string => {
   if (val === undefined || val === null) return '';
-  return String(val).replace(/[\r\n]/g, '_');
+  return encodeURIComponent(String(val));
 };
 
 // Helper for structured JSON logging (auto-parsed by Google Cloud Logging)

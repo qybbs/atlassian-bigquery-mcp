@@ -109,6 +109,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
   }
 
   console.log(`[MCP Router] User: ${userEmail} | Method: ${method} | ID: ${id}`);
+  console.log(`[MCP Router] Request Body: ${JSON.stringify(req.body)}`);
 
   try {
     switch (method) {
@@ -124,7 +125,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
           jsonrpc: '2.0',
           id,
           result: {
-            protocolVersion: params?.protocolVersion || '2024-11-05',
+            protocolVersion: '2024-11-05',
             capabilities: {
               tools: {},
             },
@@ -137,7 +138,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
       }
 
       case 'notifications/initialized': {
-        return res.status(200).end();
+        return res.status(202).end();
       }
 
       // 1. List Available Tools

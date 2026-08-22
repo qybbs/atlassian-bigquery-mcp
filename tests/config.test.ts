@@ -12,6 +12,7 @@ describe('validateEnv', () => {
     process.env.AUTH_PROVIDER = 'MOCK';
     process.env.MOCK_USER_EMAIL = 'test@example.com';
     process.env.MOCK_USER_PASSWORD = 'password123';
+    process.env.DCR_PERSISTENCE_MODE = 'STATELESS';
     
     // Clear optional/OIDC ones
     delete process.env.OIDC_CLIENT_ID;

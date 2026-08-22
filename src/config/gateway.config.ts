@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
+import { DcrPersistenceMode } from '../core/auth/types';
 
 dotenv.config();
 
@@ -103,6 +104,16 @@ const validatePositiveInteger = (value: string | undefined, varName: string, err
   }
 };
 
+const validateDcrPersistenceMode = (errors: string[]) => {
+  const mode = process.env.DCR_PERSISTENCE_MODE;
+  const validModes = Object.values(DcrPersistenceMode) as string[];
+  if (!mode) {
+    errors.push(`DCR_PERSISTENCE_MODE is required. Must be one of: ${validModes.join(', ')}.`);
+  } else if (!validModes.includes(mode.toUpperCase())) {
+    errors.push(`DCR_PERSISTENCE_MODE must be one of: ${validModes.join(', ')}. Got: "${mode}".`);
+  }
+};
+
 export const validateEnv = (): void => {
   const errors: string[] = [];
 
@@ -110,6 +121,7 @@ export const validateEnv = (): void => {
   validateGcpConfig(errors);
   validateAllowlistTables(errors);
   validateAuthProvider(errors);
+  validateDcrPersistenceMode(errors);
   
   validatePositiveInteger(process.env.MAX_BYTES_BILLED, 'MAX_BYTES_BILLED', errors);
   validatePositiveInteger(process.env.ROW_LIMIT, 'ROW_LIMIT', errors);

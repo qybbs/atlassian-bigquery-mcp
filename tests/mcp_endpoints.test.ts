@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import request from 'supertest';
 import * as jose from 'jose';
 import app from '../src/server';
+import { DcrPersistenceMode } from '../src/core/auth/types';
 
 // Mock @google-cloud/bigquery
 vi.mock('@google-cloud/bigquery', () => {
@@ -54,6 +55,7 @@ describe('MCP Endpoint Tests', () => {
     process.env.MASTER_SECRET_KEY = masterSecret;
     process.env.GCP_PROJECT_ID = 'test-project';
     process.env.ALLOWLIST_TABLES = 'dataset1.table1,project2.dataset2.table2';
+    process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
 
     const secretKey = Buffer.from(masterSecret, 'base64');
     token = await new jose.SignJWT({

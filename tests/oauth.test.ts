@@ -4,6 +4,8 @@ import * as jose from 'jose';
 import crypto from 'crypto';
 import app from '../src/server';
 
+import { DcrPersistenceMode } from '../src/core/auth/types';
+
 describe('OAuth Endpoints', () => {
   beforeAll(() => {
     process.env.MASTER_SECRET_KEY = 'a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ='; // valid base64 32 bytes (mock)
@@ -12,6 +14,7 @@ describe('OAuth Endpoints', () => {
     process.env.MOCK_USER_PASSWORD = 'password123';
     process.env.GCP_PROJECT_ID = 'mock-project';
     process.env.ALLOWLIST_TABLES = 'dataset.mock_table';
+    process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.MEMORY;
   });
 
   let clientId: string;
@@ -81,7 +84,7 @@ describe('OAuth Endpoints', () => {
         });
       
       expect(response.status).toBe(400);
-      expect(response.text).toContain('Invalid client_id format');
+      expect(response.text).toContain('Invalid client_id');
     });
   });
 

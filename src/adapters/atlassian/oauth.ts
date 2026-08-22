@@ -1,5 +1,6 @@
 import express from 'express';
 import { encryptJwe, decryptJwe, signJwt, decodeJwtUnsafe, verifyPkceChallenge } from '../../core/auth/helpers';
+import { ClientRepositoryFactory } from '../../core/auth/clientRepository';
 
 const parseCookies = (cookieHeader?: string): Record<string, string> => {
   const list: Record<string, string> = {};
@@ -38,22 +39,19 @@ export const registerClient = async (req: express.Request, res: express.Response
       }
     }
 
-    // Stateless Client ID: Encrypted JWE containing registration metadata
-    const client_id = await encryptJwe({ client_name, redirect_uris });
-
-    // Stateless Client Secret (dummy encrypted string to satisfy OAuth client configurations)
-    const client_secret = await encryptJwe({ type: 'secret', client_name });
+    const clientRepository = ClientRepositoryFactory.getRepository();
+    const client = await clientRepository.register(client_name, redirect_uris);
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
-    console.log(`[DCR] Registered client statelessly.`);
+    console.log(`[DCR] Registered client using ${process.env.DCR_PERSISTENCE_MODE || 'STATELESS'} mode.`);
 
     return res.status(201).json({
-      client_id,
-      client_secret,
-      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_id: client.clientId,
+      client_secret: client.clientSecret,
+      client_id_issued_at: client.issuedAt,
       grant_types: ['authorization_code'],
-      redirect_uris,
+      redirect_uris: client.redirectUris,
       token_endpoint: `${baseUrl}/oauth/token`,
       authorization_endpoint: `${baseUrl}/oauth/authorize`,
       response_types: ['code'],
@@ -80,23 +78,22 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Missing required OAuth parameters (client_id, redirect_uri, code_challenge)');
     }
 
-    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
+    if (typeof client_id !== 'string' || client_id.trim() === '') {
       return res.status(400).send('Invalid client_id format');
     }
     if (!/^[a-zA-Z0-9_-]{43,128}$/.test(code_challenge as string)) {
       return res.status(400).send('Invalid code_challenge format');
     }
 
-    let clientMetadata: any;
+    const clientRepository = ClientRepositoryFactory.getRepository();
+    const client = await clientRepository.get(client_id as string);
 
-    try {
-      clientMetadata = await decryptJwe(client_id as string);
-    } catch (e: any) {
-      console.warn('Invalid client_id decryption attempt:', e.message);
+    if (!client) {
+      console.warn('Invalid client_id or not found in repository');
       return res.status(400).send('Invalid client_id');
     }
 
-    const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
+    const matchedUri = client.redirectUris.find((uri: string) => uri === redirect_uri);
     if (!matchedUri) {
       return res.status(400).send('Redirect URI not registered for this client');
     }

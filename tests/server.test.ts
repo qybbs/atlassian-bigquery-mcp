@@ -2,10 +2,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import * as jose from 'jose';
 import app from '../src/server';
+import { DcrPersistenceMode } from '../src/core/auth/types';
 
 describe('Express Server API', () => {
   beforeAll(() => {
     process.env.MASTER_SECRET_KEY = 'a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ='; // valid base64 32 bytes (mock)
+    process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
   });
 
   describe('GET /health', () => {

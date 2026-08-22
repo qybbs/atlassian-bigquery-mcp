@@ -86,13 +86,13 @@ Fitur tingkat enterprise untuk memantau dan mengontrol eksekusi AI agent.
 
 Selama diskusi kita, ada beberapa detail teknis penting yang membutuhkan keputusan arsitektur khusus:
 
-### 1. Persistence Layer untuk Dynamic Clients (DCR)
+### 1. Persistence Layer untuk Dynamic Clients (DCR) [SELESAI]
 *   **Tantangan**: Saat Atlassian melakukan Dynamic Client Registration (DCR), server menghasilkan `client_id` dan `client_secret` secara dinamis.
-*   **Isu**: Saat ini, proyek dirancang *stateless* (menggunakan *in-memory storage* sementara). Jika kontainer di-*restart* (misalnya saat *cold start* di Cloud Run), data registrasi klien akan hilang, sehingga memutuskan koneksi Atlassian.
-*   **Solusi Terpilih**:
-    *   **Abstraksi Database**: Membuat *interface* `ClientRepository` di dalam gateway untuk menyembunyikan detail penyimpanan klien.
-    *   **Driver Firestore / AWS DynamoDB**: Menyediakan implementasi *driver* database NoSQL bawaan (seperti Google Cloud Firestore) yang *serverless* dan tidak memerlukan pengelolaan infrastruktur (*no-ops*).
-    *   **Driver Redis / PostgreSQL**: Menyediakan opsi *driver* relasional (Postgres) atau memori terdistribusi (Redis) untuk proyek yang sudah memiliki basis data tersebut.
+*   **Isu**: Sebelumnya, proyek dirancang stateless murni. Jika kontainer di-restart, data registrasi hilang.
+*   **Solusi Terimplementasi**:
+    *   **Abstraksi Database**: Membuat *interface* `ClientRepository` dan `ClientRepositoryFactory`.
+    *   **Tiga Mode Persistensi**: `STATELESS` (JWE-based), `MEMORY` (in-memory map), dan `FIRESTORE` (Google Cloud Firestore integration).
+    *   Pengaturan mode persistensi dikonfigurasi melalui variabel lingkungan `DCR_PERSISTENCE_MODE` (wajib diset).
 
 ### 2. Sinkronisasi Identitas Pengguna (User Identity Propagation / UIP)
 *   **Tantangan**: AI Agent memanggil API atas nama pengguna akhir (misalnya pengguna "Iqbal" di Slack atau Jira).

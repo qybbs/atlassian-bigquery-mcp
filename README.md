@@ -5,7 +5,7 @@ This project implements a modular, stateless **Enterprise SaaS-to-MCP Gateway** 
 ## Features
 
 - **Enterprise SaaS Integration**: Designed as a gateway that bridges external platforms with internal data sources using standard MCP protocol.
-- **Stateless Architecture**: Zero database dependency. Uses JWE/JWS for state management via a single `MASTER_SECRET_KEY`.
+- **Configurable DCR Persistence**: Supports three modes of Dynamic Client Registration (DCR) persistence: `STATELESS` (zero DB dependency via JWE encryption), `MEMORY` (temporary in-memory store), and `FIRESTORE` (production-grade stateful store with Google Cloud Firestore).
 - **Dynamic Client Registration (RFC 7591)**: Supports dynamic registration of MCP clients (e.g., Atlassian Rovo) automatically at runtime.
 - **OAuth 2.1 Authorization Code Flow**: Implements a secure authorization flow with PKCE, utilizing a modular identity layer (Mock / OIDC SSO-ready).
 - **Outbound Drivers**: Bundled with a Google BigQuery driver providing safe schema inspection, cost estimation, and data querying.
@@ -107,6 +107,9 @@ This MCP server exposes the following custom tools to external clients (e.g., At
     PORT=3000
     # Generate a random 32-byte base64 string for this
     MASTER_SECRET_KEY="your-secure-base64-encoded-32-byte-key-here"
+    
+    # DCR Persistence Mode: STATELESS, MEMORY, or FIRESTORE
+    DCR_PERSISTENCE_MODE=STATELESS
     
     # Path to your Google Cloud Service Account JSON key file
     GOOGLE_APPLICATION_CREDENTIALS="./your-service-account-key.json"
@@ -231,7 +234,7 @@ This project includes a GitHub Actions workflow (`.github/workflows/release-dock
 To run the Docker image locally or in production, you must inject the necessary configuration via Environment Variables:
 - **BigQuery Limits**: `MAX_BYTES_BILLED`, `ROW_LIMIT`
 - **Security & Authorization**: `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_REDIRECT_URIS`, `TOKEN_EXPIRATION`, `TOKEN_EXPIRATION_SECONDS`
-- **Authentication Credentials**: `MASTER_SECRET_KEY`, `AUTH_PROVIDER`, and OIDC specific variables.
+- **Authentication & Persistence**: `MASTER_SECRET_KEY`, `AUTH_PROVIDER`, `DCR_PERSISTENCE_MODE` (options: `STATELESS`, `MEMORY`, `FIRESTORE`), and OIDC specific variables.
 
 Example running the container locally:
 ```bash

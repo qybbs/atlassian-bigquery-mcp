@@ -15,7 +15,7 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
   const cleanSql = sql.trim().toLowerCase();
   
   // 1. Remove comments (both block /* */ and inline -- comments) to prevent evasion without backtracking
-  const sqlWithoutComments = cleanSql.replace(/\/\*(?:\*[^\/]|[^*])*\*\/|--.*$/gm, '').trim();
+  const sqlWithoutComments = cleanSql.replace(/\/\*(?:\*[^\/]|[^*])*\*\/|--.*/g, '').trim();
   
   // 2. Strip backticks to simplify matching and prevent backtracking
   const sqlCleaned = sqlWithoutComments.replace(/`/g, '');

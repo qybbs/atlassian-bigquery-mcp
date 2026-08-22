@@ -25,3 +25,5 @@ dist/
 
 # Gemini Agent Cache
 .gemini/
+
+coverage/

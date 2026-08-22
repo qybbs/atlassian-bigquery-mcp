@@ -125,7 +125,7 @@ describe('OAuth Endpoints', () => {
       expect(loginResponse.headers.location).toContain('state=xyz123');
     });
 
-    it('harus menolak login dan redirect kembali jika kredensial salah', async () => {
+    it('harus menolak login jika email atau password salah', async () => {
       const authResponse = await request(app)
         .get('/oauth/authorize')
         .query({
@@ -134,21 +134,34 @@ describe('OAuth Endpoints', () => {
           response_type: 'code',
           state: 'xyz123',
           code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123',
-          code_challenge_method: 'S256'
+          code_challenge_method: 'plain'
         });
       
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
-      const loginResponse = await request(app)
+      const response = await request(app)
         .post('/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
-          password: 'wrong-password'
+          password: 'wrongpassword'
         });
+      
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toContain('error=login_failed');
+    });
 
-      expect(loginResponse.status).toBe(302);
-      expect(loginResponse.headers.location).toContain('error=login_failed');
+    it('harus menolak login jika flow token tidak valid', async () => {
+      const response = await request(app)
+        .post('/oauth/login')
+        .set('Cookie', 'oauth_flow=invalid.token.here')
+        .send({
+          email: 'test@example.com',
+          password: 'password123'
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.text).toBe('Invalid session state');
     });
   });
 

@@ -14,7 +14,7 @@ describe('Express Server API', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
         status: 'ok',
-        service: 'Atlassian BigQuery MCP Server'
+        service: 'Enterprise SaaS-to-MCP Gateway'
       });
     });
   });

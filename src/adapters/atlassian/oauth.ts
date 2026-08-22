@@ -1,14 +1,5 @@
 import express from 'express';
-import * as jose from 'jose';
-import crypto from 'node:crypto';
-
-import { validateEnv } from './config';
-
-// Master secret key used for symmetric JWE (encryption) and JWS (signing)
-const getSecretKey = (): Buffer => {
-  validateEnv();
-  return Buffer.from(process.env.MASTER_SECRET_KEY!, 'base64');
-};
+import { encryptJwe, decryptJwe, signJwt, decodeJwtUnsafe, verifyPkceChallenge } from '../../core/auth/helpers';
 
 const parseCookies = (cookieHeader?: string): Record<string, string> => {
   const list: Record<string, string> = {};
@@ -47,19 +38,11 @@ export const registerClient = async (req: express.Request, res: express.Response
       }
     }
 
-    const secretKey = getSecretKey();
-
     // Stateless Client ID: Encrypted JWE containing registration metadata
-    const client_id = await new jose.EncryptJWT({ client_name, redirect_uris })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .encrypt(secretKey);
+    const client_id = await encryptJwe({ client_name, redirect_uris });
 
     // Stateless Client Secret (dummy encrypted string to satisfy OAuth client configurations)
-    const client_secret = await new jose.EncryptJWT({ type: 'secret', client_name })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .encrypt(secretKey);
+    const client_secret = await encryptJwe({ type: 'secret', client_name });
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
@@ -97,7 +80,6 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Missing required OAuth parameters (client_id, redirect_uri, code_challenge)');
     }
 
-    // Strict validation of incoming parameters to prevent XSS (JWE has 5 parts, part 2 is empty for alg: 'dir')
     if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
       return res.status(400).send('Invalid client_id format');
     }
@@ -105,38 +87,29 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Invalid code_challenge format');
     }
 
-    const secretKey = getSecretKey();
     let clientMetadata: any;
 
-    // Decrypt client_id to validate it was registered by this server
     try {
-      const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
-      clientMetadata = payload;
+      clientMetadata = await decryptJwe(client_id as string);
     } catch (e: any) {
       console.warn('Invalid client_id decryption attempt:', e.message);
       return res.status(400).send('Invalid client_id');
     }
 
-    // Verify requested redirect_uri matches registered URIs and use trusted matched URI
     const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
     if (!matchedUri) {
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
     if (process.env.AUTH_PROVIDER === 'OIDC') {
-      // Encrypt Atlassian OAuth state to preserve it across OIDC flow
-      const oidcState = await new jose.EncryptJWT({
+      const oidcState = await encryptJwe({
         client_id,
         redirect_uri,
         response_type,
         state,
         code_challenge,
         code_challenge_method,
-      })
-        .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-        .setIssuedAt()
-        .setExpirationTime('10m')
-        .encrypt(secretKey);
+      }, '10m');
 
       const oidcAuthUrl = new URL(process.env.OIDC_AUTHORIZATION_ENDPOINT as string);
       oidcAuthUrl.searchParams.append('client_id', process.env.OIDC_CLIENT_ID as string);
@@ -148,20 +121,14 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.redirect(oidcAuthUrl.toString());
     }
 
-    // AUTH_PROVIDER === MOCK
-    // Implement State-Cookie pattern for XSS protection
     const stateStr = typeof state === 'string' ? state : '';
-    const flowToken = await new jose.EncryptJWT({
+    const flowToken = await encryptJwe({
       client_id,
       redirect_uri: matchedUri,
-      state: stateStr.replace(/[^a-zA-Z0-9_-]/g, ''),
+      state: stateStr,
       code_challenge,
       code_challenge_method: code_challenge_method === 'plain' ? 'plain' : 'S256',
-    })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .setExpirationTime('15m')
-      .encrypt(secretKey);
+    }, '15m');
 
     const isSecure = req.protocol === 'https' || req.secure;
     res.setHeader('Set-Cookie', `oauth_flow=${flowToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=900${isSecure ? '; Secure' : ''}`);
@@ -169,14 +136,13 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
     const isError = req.query.error === 'login_failed';
     const errorMessage = isError ? '<div class="error-msg" style="padding:10px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);border-radius:6px;margin-bottom:15px;text-align:center;">Otorisasi Gagal: Kredensial Salah</div>' : '';
 
-    // Render simple, premium-looking login form (Corporate theme: Sleek Dark / Blue accents)
     const html = `
       <!DOCTYPE html>
       <html lang="id">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>BigQuery MCP Otorisasi</title>
+        <title>Enterprise SaaS-to-MCP Gateway Otorisasi</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
         <style>
           body {
@@ -306,18 +272,15 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
       return res.status(400).send('Missing code or state from OIDC provider');
     }
 
-    const secretKey = getSecretKey();
     let atlassianParams: any;
 
     try {
-      const { payload } = await jose.jwtDecrypt(state as string, secretKey);
-      atlassianParams = payload;
+      atlassianParams = await decryptJwe(state as string);
     } catch (e: any) {
       console.warn('OIDC State decryption failed:', e.message);
       return res.status(400).send('Invalid state token');
     }
 
-    // Exchange OIDC code for ID Token
     const tokenResponse = await fetch(process.env.OIDC_TOKEN_ENDPOINT as string, {
       method: 'POST',
       headers: {
@@ -343,8 +306,7 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
       return res.status(500).send('OIDC provider did not return an id_token');
     }
 
-    // Decode ID Token to get user info
-    const decodedIdToken = jose.decodeJwt(tokenData.id_token);
+    const decodedIdToken = decodeJwtUnsafe(tokenData.id_token);
     const email = (decodedIdToken.email || decodedIdToken.preferred_username) as string;
 
     if (!email) {
@@ -360,20 +322,14 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
       }
     }
 
-    // Generate stateless authorization code
-    const authorization_code = await new jose.EncryptJWT({
+    const authorization_code = await encryptJwe({
       client_id: atlassianParams.client_id,
       redirect_uri: atlassianParams.redirect_uri,
       email,
       code_challenge: atlassianParams.code_challenge,
       code_challenge_method: atlassianParams.code_challenge_method,
-    })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .setExpirationTime('5m')
-      .encrypt(secretKey);
+    }, '5m');
 
-    // Redirect user back to Atlassian redirect URI
     const redirectUrl = new URL(atlassianParams.redirect_uri);
     redirectUrl.searchParams.append('code', authorization_code);
     if (atlassianParams.state) {
@@ -399,12 +355,10 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       return res.status(400).send('Session expired or invalid flow. Please try logging in again.');
     }
 
-    const secretKey = getSecretKey();
     let flowData: any;
 
     try {
-      const { payload } = await jose.jwtDecrypt(flowToken, secretKey);
-      flowData = payload;
+      flowData = await decryptJwe(flowToken);
     } catch (e: any) {
       console.warn('Flow token decryption failed:', e.message);
       return res.status(400).send('Invalid session state');
@@ -416,31 +370,22 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
     const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
     const mockPassword = process.env.MOCK_USER_PASSWORD || 'secret-password';
 
-    // Verify mock credentials
     if (email !== mockEmail || password !== mockPassword) {
-      // Clear cookie and redirect back with error
       res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
       const authorizeUrl = `/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}&error=login_failed`;
       return res.redirect(authorizeUrl);
     }
 
-    // Stateless Authorization Code: Encrypted short-lived JWE (valid for 5 minutes)
-    const authorization_code = await new jose.EncryptJWT({
+    const authorization_code = await encryptJwe({
       client_id,
       redirect_uri,
       email,
       code_challenge,
       code_challenge_method,
-    })
-      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
-      .setIssuedAt()
-      .setExpirationTime('5m') // Auth code expires in 5 minutes
-      .encrypt(secretKey);
+    }, '5m');
 
-    // Clear the oauth_flow cookie
     res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
 
-    // Redirect user back to Atlassian redirect URI with auth code & state
     const redirectUrl = new URL(redirect_uri);
     redirectUrl.searchParams.append('code', authorization_code);
     if (state) {
@@ -460,7 +405,6 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
   try {
     let { grant_type, code, client_id, code_verifier } = req.body;
 
-    // Support HTTP Basic Auth for client_id (Atlassian sometimes uses this instead of body parameter)
     if (!client_id && req.headers.authorization?.startsWith('Basic ')) {
       const base64Credentials = req.headers.authorization.split(' ')[1];
       const decodedCredentials = Buffer.from(base64Credentials, 'base64').toString('utf-8');
@@ -475,54 +419,32 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
       return res.status(400).json({ error: 'invalid_request', error_description: 'Missing code, code_verifier, or client_id' });
     }
 
-    const secretKey = getSecretKey();
     let authCodePayload: any;
 
-    // Decrypt and verify the stateless authorization code JWE
     try {
-      const { payload } = await jose.jwtDecrypt(code, secretKey);
-      authCodePayload = payload;
+      authCodePayload = await decryptJwe(code);
     } catch (e: any) {
       console.warn('Auth Code Decryption Failed:', e.message);
       return res.status(400).json({ error: 'invalid_grant', error_description: 'Authorization code is invalid or expired' });
     }
 
-    // Verify client_id matches the code issuer
     if (authCodePayload.client_id !== client_id) {
       return res.status(400).json({ error: 'invalid_grant', error_description: 'Client ID mismatch' });
     }
 
-    // PKCE Verification
     const { code_challenge, code_challenge_method } = authCodePayload;
-    let computedChallenge: string;
-
-    if (code_challenge_method === 'S256') {
-      // SHA-256 Base64URL hash of code_verifier
-      computedChallenge = crypto
-        .createHash('sha256')
-        .update(code_verifier)
-        .digest('base64url');
-    } else {
-      // Plain code challenge
-      computedChallenge = code_verifier;
-    }
-
-    if (computedChallenge !== code_challenge) {
+    
+    if (!verifyPkceChallenge(code_verifier, code_challenge, code_challenge_method)) {
       console.warn('[PKCE] Verification failed. Challenge mismatch.');
       return res.status(400).json({ error: 'invalid_grant', error_description: 'PKCE code verifier does not match challenge' });
     }
 
-    // PKCE matches! Generate symmetric JWS signed JWT Access Token
     const user_email = authCodePayload.email;
-    const access_token = await new jose.SignJWT({
+    const access_token = await signJwt({
       email: user_email,
       client_id,
       scope: 'mcp:execute',
-    })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .setExpirationTime(process.env.TOKEN_EXPIRATION || '1h')
-      .sign(secretKey);
+    }, process.env.TOKEN_EXPIRATION || '1h');
 
     console.log(`[OAuth] Issued Access Token for: ${user_email}`);
 

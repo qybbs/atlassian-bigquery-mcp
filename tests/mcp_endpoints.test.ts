@@ -89,7 +89,7 @@ describe('MCP Endpoint Tests', () => {
         method: 'initialize'
       });
     expect(res.status).toBe(200);
-    expect(res.body.result.serverInfo.name).toBe('bigquery-mcp-server');
+    expect(res.body.result.serverInfo.name).toBe('enterprise-mcp-gateway');
   });
 
   it('harus merespon 202 pada notifications/initialized', async () => {

@@ -1,6 +1,6 @@
-# Detail Arsitektur Opsi 2 — Self-hosted BigQuery MCP Server untuk SERSAN Agent
+# Detail Arsitektur Opsi 2 — Enterprise SaaS-to-MCP Gateway untuk SERSAN Agent
 
-Dokumen ini merinci rancangan teknis untuk **Opsi 2**: **self-hosted BigQuery MCP Server** yang dideploy ke Cloud Run agar SERSAN Agent dapat mengeksekusi query BigQuery secara aman, terukur, dan dapat diaudit.
+Dokumen ini merinci rancangan teknis untuk **Opsi 2**: **Enterprise SaaS-to-MCP Gateway** yang dideploy ke Cloud Run agar SERSAN Agent dapat mengeksekusi query BigQuery secara aman, terukur, dan dapat diaudit.
 
 **Tujuan keputusan**
 Menentukan seperti apa desain target Opsi 2 yang cukup aman untuk pilot, tetap ringan untuk dibangun, dan memberi ruang evolusi ke model audit serta identity yang lebih matang.

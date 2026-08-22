@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { validateEnv } from '../src/config';
+import { validateEnv } from '../src/config/gateway.config';
 
 describe('validateEnv', () => {
   const originalEnv = { ...process.env };

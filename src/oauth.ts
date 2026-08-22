@@ -1,6 +1,6 @@
 import express from 'express';
 import * as jose from 'jose';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 
 import { validateEnv } from './config';
 
@@ -8,6 +8,27 @@ import { validateEnv } from './config';
 const getSecretKey = (): Buffer => {
   validateEnv();
   return Buffer.from(process.env.MASTER_SECRET_KEY!, 'base64');
+};
+
+const parseCookies = (cookieHeader?: string): Record<string, string> => {
+  const list: Record<string, string> = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    const parts = cookie.split('=');
+    const key = parts.shift()?.trim();
+    if (key) list[key] = decodeURIComponent(parts.join('='));
+  });
+  return list;
+};
+
+const escapeHtml = (unsafe: any): string => {
+  if (unsafe === undefined || unsafe === null) return '';
+  return String(unsafe)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 };
 
 // 1. Dynamic Client Registration (DCR - RFC 7591)
@@ -42,7 +63,7 @@ export const registerClient = async (req: express.Request, res: express.Response
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
-    console.log(`[DCR] Registered client "${client_name}" statelessly.`);
+    console.log(`[DCR] Registered client statelessly.`);
 
     return res.status(201).json({
       client_id,
@@ -76,6 +97,14 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Missing required OAuth parameters (client_id, redirect_uri, code_challenge)');
     }
 
+    // Strict validation of incoming parameters to prevent XSS (JWE has 5 parts, part 2 is empty for alg: 'dir')
+    if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(client_id as string)) {
+      return res.status(400).send('Invalid client_id format');
+    }
+    if (!/^[a-zA-Z0-9_-]{43,128}$/.test(code_challenge as string)) {
+      return res.status(400).send('Invalid code_challenge format');
+    }
+
     const secretKey = getSecretKey();
     let clientMetadata: any;
 
@@ -83,13 +112,14 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
     try {
       const { payload } = await jose.jwtDecrypt(client_id as string, secretKey);
       clientMetadata = payload;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn('Invalid client_id decryption attempt:', e.message);
       return res.status(400).send('Invalid client_id');
     }
 
-    // Verify requested redirect_uri matches registered URIs
-    const isRedirectUriRegistered = clientMetadata.redirect_uris.includes(redirect_uri as string);
-    if (!isRedirectUriRegistered) {
+    // Verify requested redirect_uri matches registered URIs and use trusted matched URI
+    const matchedUri = clientMetadata.redirect_uris.find((uri: string) => uri === redirect_uri);
+    if (!matchedUri) {
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
@@ -117,6 +147,27 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
 
       return res.redirect(oidcAuthUrl.toString());
     }
+
+    // AUTH_PROVIDER === MOCK
+    // Implement State-Cookie pattern for XSS protection
+    const stateStr = typeof state === 'string' ? state : '';
+    const flowToken = await new jose.EncryptJWT({
+      client_id,
+      redirect_uri: matchedUri,
+      state: stateStr.replace(/[^a-zA-Z0-9_-]/g, ''),
+      code_challenge,
+      code_challenge_method: code_challenge_method === 'plain' ? 'plain' : 'S256',
+    })
+      .setProtectedHeader({ alg: 'dir', enc: 'A256GCM' })
+      .setIssuedAt()
+      .setExpirationTime('15m')
+      .encrypt(secretKey);
+
+    const isSecure = req.protocol === 'https' || req.secure;
+    res.setHeader('Set-Cookie', `oauth_flow=${flowToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=900${isSecure ? '; Secure' : ''}`);
+
+    const isError = req.query.error === 'login_failed';
+    const errorMessage = isError ? '<div class="error-msg" style="padding:10px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);border-radius:6px;margin-bottom:15px;text-align:center;">Otorisasi Gagal: Kredensial Salah</div>' : '';
 
     // Render simple, premium-looking login form (Corporate theme: Sleek Dark / Blue accents)
     const html = `
@@ -220,17 +271,12 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <div class="logo">Corporate</div>
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
+          ${errorMessage}
           <form action="/oauth/login" method="POST">
-            <!-- Hidden OAuth state -->
-            <input type="hidden" name="client_id" value="${client_id}">
-            <input type="hidden" name="redirect_uri" value="${redirect_uri}">
-            <input type="hidden" name="state" value="${state || ''}">
-            <input type="hidden" name="code_challenge" value="${code_challenge}">
-            <input type="hidden" name="code_challenge_method" value="${code_challenge_method || 'S256'}">
             
             <div class="form-group">
               <label for="email">Email</label>
-              <input type="email" id="email" name="email" value="${process.env.MOCK_USER_EMAIL || 'user@example.com'}" required>
+              <input type="email" id="email" name="email" value="${escapeHtml(process.env.MOCK_USER_EMAIL || 'user@example.com')}" required>
             </div>
             
             <div class="form-group">
@@ -266,7 +312,8 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
     try {
       const { payload } = await jose.jwtDecrypt(state as string, secretKey);
       atlassianParams = payload;
-    } catch (e) {
+    } catch (e: any) {
+      console.warn('OIDC State decryption failed:', e.message);
       return res.status(400).send('Invalid state token');
     }
 
@@ -286,8 +333,8 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
     });
 
     if (!tokenResponse.ok) {
-      const errText = await tokenResponse.text();
-      console.error('OIDC Token Error:', errText);
+      await tokenResponse.text();
+      console.error('OIDC Token Error: Provider returned failure status.');
       return res.status(500).send('Failed to exchange OIDC code');
     }
 
@@ -345,28 +392,37 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
 // 3. OAuth 2.1 POST /oauth/login (Handles Mock Login submission & redirects with Auth Code)
 export const submitLogin = async (req: express.Request, res: express.Response) => {
   try {
-    const {
-      client_id,
-      redirect_uri,
-      state,
-      code_challenge,
-      code_challenge_method,
-      email,
-      password,
-    } = req.body;
+    const cookies = parseCookies(req.headers.cookie);
+    const flowToken = cookies['oauth_flow'];
+    
+    if (!flowToken) {
+      return res.status(400).send('Session expired or invalid flow. Please try logging in again.');
+    }
+
+    const secretKey = getSecretKey();
+    let flowData: any;
+
+    try {
+      const { payload } = await jose.jwtDecrypt(flowToken, secretKey);
+      flowData = payload;
+    } catch (e: any) {
+      console.warn('Flow token decryption failed:', e.message);
+      return res.status(400).send('Invalid session state');
+    }
+
+    const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = flowData;
+    const { email, password } = req.body;
 
     const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
     const mockPassword = process.env.MOCK_USER_PASSWORD || 'secret-password';
 
     // Verify mock credentials
     if (email !== mockEmail || password !== mockPassword) {
-      return res.status(401).send(`
-        <h3>Otorisasi Gagal: Kredensial Salah</h3>
-        <a href="/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}">Coba Lagi</a>
-      `);
+      // Clear cookie and redirect back with error
+      res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+      const authorizeUrl = `/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}&error=login_failed`;
+      return res.redirect(authorizeUrl);
     }
-
-    const secretKey = getSecretKey();
 
     // Stateless Authorization Code: Encrypted short-lived JWE (valid for 5 minutes)
     const authorization_code = await new jose.EncryptJWT({
@@ -381,6 +437,9 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       .setExpirationTime('5m') // Auth code expires in 5 minutes
       .encrypt(secretKey);
 
+    // Clear the oauth_flow cookie
+    res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+
     // Redirect user back to Atlassian redirect URI with auth code & state
     const redirectUrl = new URL(redirect_uri);
     redirectUrl.searchParams.append('code', authorization_code);
@@ -388,7 +447,7 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       redirectUrl.searchParams.append('state', state);
     }
 
-    console.log(`[OAuth] User logged in: ${email}. Redirecting back to Atlassian.`);
+    console.log(`[Mock SSO] User logged in: ${email}. Redirecting back to client.`);
     return res.redirect(redirectUrl.toString());
   } catch (err: any) {
     console.error('Submit Login Error:', err);
@@ -399,7 +458,7 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
 // 4. OAuth 2.1 POST /oauth/token (Exchange Auth Code for JWT Access Token with PKCE Verification)
 export const tokenExchange = async (req: express.Request, res: express.Response) => {
   try {
-    let { grant_type, code, redirect_uri, client_id, code_verifier } = req.body;
+    let { grant_type, code, client_id, code_verifier } = req.body;
 
     // Support HTTP Basic Auth for client_id (Atlassian sometimes uses this instead of body parameter)
     if (!client_id && req.headers.authorization?.startsWith('Basic ')) {
@@ -470,7 +529,7 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
     return res.status(200).json({
       access_token,
       token_type: 'Bearer',
-      expires_in: parseInt(process.env.TOKEN_EXPIRATION_SECONDS || '3600', 10),
+      expires_in: Number.parseInt(process.env.TOKEN_EXPIRATION_SECONDS || '3600', 10),
     });
   } catch (err: any) {
     console.error('Token Exchange Error:', err);

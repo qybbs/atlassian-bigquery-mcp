@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
+import * as jose from 'jose';
 import app from '../src/server';
 
 describe('Express Server API', () => {
@@ -23,6 +24,24 @@ describe('Express Server API', () => {
       const response = await request(app).get('/');
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('ok');
+    });
+  });
+
+  describe('CORS Middleware', () => {
+    it('harus mengizinkan request dari origin yang diperbolehkan', async () => {
+      const response = await request(app)
+        .get('/health')
+        .set('Origin', 'https://api.atlassian.com');
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('https://api.atlassian.com');
+    });
+
+    it('harus menolak request dari origin yang tidak diperbolehkan', async () => {
+      const response = await request(app)
+        .get('/health')
+        .set('Origin', 'http://malicious-site.com');
+      expect(response.status).toBe(500);
+      expect(response.text).toContain('Not allowed by CORS');
     });
   });
 
@@ -52,6 +71,70 @@ describe('Express Server API', () => {
       
       expect(response.status).toBe(401);
       expect(response.body.error.message).toContain('Unauthorized: Token validation failed');
+    });
+
+    it('harus menolak request jika jsonrpc bukan 2.0', async () => {
+      const secret = Buffer.from('a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ=', 'base64');
+      const token = await new jose.SignJWT({ email: 'test@example.com' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(secret);
+
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          jsonrpc: '1.0',
+          method: 'tools/list',
+          id: 1
+        });
+      
+      expect(response.status).toBe(400);
+      expect(response.body.error.message).toContain('jsonrpc must be "2.0"');
+    });
+
+    it('harus merespon method not found untuk method yang tidak dikenal', async () => {
+      const secret = Buffer.from('a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ=', 'base64');
+      const token = await new jose.SignJWT({ email: 'test@example.com' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(secret);
+
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          jsonrpc: '2.0',
+          method: 'unknown_method',
+          id: 1
+        });
+      
+      expect(response.status).toBe(404);
+      expect(response.body.error.message).toContain('Method not found');
+    });
+
+    it('harus merespon tool not found jika tools/call meminta tool yang tidak ada', async () => {
+      const secret = Buffer.from('a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ=', 'base64');
+      const token = await new jose.SignJWT({ email: 'test@example.com' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(secret);
+
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          id: 1,
+          params: { name: 'unknown_tool', arguments: {} }
+        });
+      
+      expect(response.status).toBe(404);
+      expect(response.body.error.message).toContain('Method not found: Tool "unknown_tool" is not implemented');
     });
   });
 });

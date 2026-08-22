@@ -9,19 +9,36 @@ import { validateEnv } from './config';
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by'); // Prevent Express version disclosure
 const port = process.env.PORT || 3000;
 
 // Trust proxy to correctly identify HTTPS protocol when running behind reverse proxies like ngrok
 app.set('trust proxy', true);
 
 // Middleware
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_CORS_ORIGINS
+  ? process.env.ALLOWED_CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['https://api.atlassian.com', 'http://localhost:3000'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or backend-to-backend calls)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+  }
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Simple Request Logging Middleware for debugging
 app.use((req, res, next) => {
-  console.log(`[HTTP] ${req.method} ${req.url}`);
+  const safeUrl = String(req.url || '').replace(/[\r\n]/g, '');
+  const safeMethod = String(req.method || '').replace(/[\r\n]/g, '');
+  console.log(`[HTTP] ${safeMethod} ${safeUrl}`);
   next();
 });
 

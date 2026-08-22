@@ -1,5 +1,5 @@
 import { writeAuditLog } from '../logging/audit';
-import { validateQuerySafety } from './policy';
+import { PolicyError } from './policy';
 import { driverManager } from './driverManager';
 
 export interface McpRequest {
@@ -42,8 +42,8 @@ const handleInitialize = (id: any, userEmail: string): McpResponse => {
   };
 };
 
-const handleToolsList = async (id: any): Promise<McpResponse> => {
-  const tools = await driverManager.getToolsList();
+const handleToolsList = async (id: any, allowedDrivers?: string[]): Promise<McpResponse> => {
+  const tools = await driverManager.getToolsList(allowedDrivers);
   return {
     jsonrpc: '2.0',
     id,
@@ -53,7 +53,7 @@ const handleToolsList = async (id: any): Promise<McpResponse> => {
   };
 };
 
-const handleToolsCall = async (id: any, userEmail: string, params: any): Promise<McpResponse> => {
+const handleToolsCall = async (id: any, userEmail: string, params: any, allowedDrivers?: string[]): Promise<McpResponse> => {
   const toolName = params?.name;
   const args = params?.arguments || {};
 
@@ -65,54 +65,33 @@ const handleToolsCall = async (id: any, userEmail: string, params: any): Promise
     };
   }
 
-  // Fase 4: Granular Policy Engine guardrails (untuk BigQuery sql-based tools)
-  let tablesTouched: string[] | undefined = undefined;
-  if (toolName === 'estimate_query_cost' || toolName === 'execute_readonly_query') {
-    const sql = args.sql;
-    if (!sql) {
+  if (allowedDrivers) {
+    const driverName = driverManager.getDriverNameForTool(toolName);
+    if (!driverName || !allowedDrivers.includes(driverName)) {
       writeAuditLog({
         requestId: id,
         userEmail,
         toolName,
         status: 'REJECTED',
-        denialReason: 'Error: sql query parameter is required.',
+        denialReason: `Access Denied: You do not have permission to use tools from driver ${driverName || 'unknown'}. Allowed drivers: ${allowedDrivers.join(', ')}`,
       });
       return {
         jsonrpc: '2.0',
         id,
-        result: {
-          content: [{ type: 'text', text: 'Error: sql query parameter is required.' }],
-          isError: true,
-        },
+        error: { code: -32000, message: `Access Denied: You do not have permission to use tools from driver ${driverName || 'unknown'}.` },
       };
     }
-
-    const safety = validateQuerySafety(sql);
-    if (!safety.safe) {
-      writeAuditLog({
-        requestId: id,
-        userEmail,
-        toolName,
-        sql,
-        tablesTouched: safety.detectedTables,
-        status: 'REJECTED',
-        denialReason: safety.reason,
-      });
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          content: [{ type: 'text', text: `Rejected: ${safety.reason}` }],
-          isError: true,
-        },
-      };
-    }
-    tablesTouched = safety.detectedTables;
   }
 
   try {
     const result = await driverManager.callTool(toolName, args);
     
+    let metadata: Record<string, any> | undefined = undefined;
+    if (typeof result === 'object' && result !== null && '_audit' in result) {
+      metadata = result._audit;
+      delete result._audit;
+    }
+
     // Asumsi bahwa driver mengembalikan objek native JS/TS, kita format sebagai JSON string jika bukan string.
     const formattedResult = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
 
@@ -121,10 +100,7 @@ const handleToolsCall = async (id: any, userEmail: string, params: any): Promise
       userEmail,
       toolName,
       status: 'SUCCESS',
-      tablesTouched,
-      // Jika butuh bytesEstimate atau rowCount, bisa diekstrak jika bentuk result dikenali.
-      bytesEstimate: result && typeof result === 'object' && result.bytesScanned ? result.bytesScanned : undefined,
-      rowCount: result && Array.isArray(result) ? result.length : undefined,
+      metadata,
     });
     
     return {
@@ -135,13 +111,31 @@ const handleToolsCall = async (id: any, userEmail: string, params: any): Promise
       },
     };
   } catch (err: any) {
+    if (err instanceof PolicyError) {
+      writeAuditLog({
+        requestId: id,
+        userEmail,
+        toolName,
+        status: 'REJECTED',
+        denialReason: err.message,
+        metadata: err.metadata,
+      });
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [{ type: 'text', text: `Rejected: ${err.message}` }],
+          isError: true,
+        },
+      };
+    }
+
     writeAuditLog({
       requestId: id,
       userEmail,
       toolName,
       status: 'FAILED',
       error: err.message,
-      tablesTouched,
     });
     
     if (err.message.includes('Method not found:')) {
@@ -163,7 +157,7 @@ const handleToolsCall = async (id: any, userEmail: string, params: any): Promise
   }
 };
 
-export const routeMcpRequest = async (request: McpRequest, userEmail: string): Promise<McpResponse | null> => {
+export const routeMcpRequest = async (request: McpRequest, userEmail: string, allowedDrivers?: string[]): Promise<McpResponse | null> => {
   const { jsonrpc, id, method, params } = request;
 
   if (jsonrpc !== '2.0') {
@@ -180,10 +174,10 @@ export const routeMcpRequest = async (request: McpRequest, userEmail: string): P
         return null;
 
       case 'tools/list':
-        return await handleToolsList(id);
+        return await handleToolsList(id, allowedDrivers);
 
       case 'tools/call':
-        return await handleToolsCall(id, userEmail, params);
+        return await handleToolsCall(id, userEmail, params, allowedDrivers);
 
       default: {
         return {

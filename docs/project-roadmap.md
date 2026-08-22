@@ -44,8 +44,8 @@ Fase ini fokus memisahkan logika Atlassian yang saat ini bercampur di dalam kode
 *   **Generalisasi Konfigurasi**:
     *   Membuat file konfigurasi terpusat (misal `src/config/gateway.config.ts`) untuk mengaktifkan/menonaktifkan adapter tertentu berdasarkan variabel lingkungan (`.env`).
 
-### Fase 2: Pengembangan Outbound Drivers (Downstream Connectivity)
-Menyediakan berbagai cara bagi gateway untuk mengeksekusi tool dari berbagai sumber.
+### Fase 2: Pengembangan Outbound Drivers (Downstream Connectivity) [SELESAI]
+Menyediakan berbagai cara bagi gateway untuk mengeksekusi tool dari berbagai sumber secara modular menggunakan `DriverManager` terpusat.
 
 *   **Direct TypeScript Driver**: 
     *   Membungkus logic seperti [`bigquery.ts`](file:///Users/OUT2305/Repo/bigquery-mcp/src/bigquery.ts) sebagai modul yang dipanggil secara lokal.
@@ -54,9 +54,15 @@ Menyediakan berbagai cara bagi gateway untuk mengeksekusi tool dari berbagai sum
 *   **Remote SSE Proxy Driver**:
     *   Menghubungkan gateway ke MCP server internal lain yang berjalan di jaringan privat menggunakan HTTP/SSE.
 
-### Fase 3: Integrasi Inbound Adapters Baru
-Menambahkan pintu masuk bagi platform AI non-Atlassian serta menyediakan antarmuka kustom untuk pihak ketiga.
+### Fase 3: Integrasi Inbound Adapters Baru & Konfigurasi Deklaratif
+Menambahkan pintu masuk bagi platform AI non-Atlassian serta menyediakan antarmuka kustom untuk pihak ketiga, serta memetakan relasi antara Inbound dan Outbound secara aman.
 
+*   **Penyusunan Kontrak Konfigurasi Terpusat (`gateway-mcp-config.json`)**:
+    *   Membangun file konfigurasi JSON untuk mendaftarkan banyak (*multi-instance*) inbound adapter dan outbound driver sekaligus secara terstruktur, menggantikan batasan flat `.env`.
+    *   Mendukung *environment variable substitution* (seperti `${SONARQUBE_TOKEN}`) agar rahasia/token tetap tersimpan aman di `.env` dan tidak *hardcoded* di file JSON.
+*   **Inbound-to-Outbound Scoping (Access Control)**:
+    *   Menyediakan pemetaan hak akses (`allowedDrivers`) di konfigurasi setiap inbound adapter, sehingga adapter tertentu hanya diizinkan memanggil driver tertentu (misal: Atlassian hanya mengakses BigQuery, sedangkan OpenAI dapat mengakses BigQuery & SonarQube).
+    *   Memodifikasi `DriverManager` dan `Router` agar memfilter daftar *tools* secara dinamis berdasarkan izin akses pemanggil (*client context*).
 *   **OpenAI Action Adapter**:
     *   *Translasi Protokol*: Membuat parser yang secara otomatis menerjemahkan tool schema MCP menjadi dokumentasi **OpenAPI (Swagger) JSON**.
     *   *Otentikasi*: Menyediakan endpoint otentikasi standar (OAuth 2.0 atau Static API Key) yang bisa dibaca oleh OpenAI.

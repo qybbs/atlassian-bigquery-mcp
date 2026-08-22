@@ -2,6 +2,7 @@ import { McpDriver, McpDriverType } from './driver';
 import { BigQueryDriver } from '../../drivers/bigqueryDriver';
 import { StdioDriver } from '../../drivers/stdioDriver';
 import { SseDriver } from '../../drivers/sseDriver';
+import { gatewayConfig } from '../../config/gateway.config';
 
 export class DriverManager {
   private drivers: Map<string, McpDriver> = new Map();
@@ -12,33 +13,58 @@ export class DriverManager {
   private cachedToolsList: any[] = [];
 
   async initialize(): Promise<void> {
-    const activeDriversRaw = process.env.ACTIVE_DRIVERS || McpDriverType.BIGQUERY;
-    const activeDriverNames = activeDriversRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const config = gatewayConfig;
+    if (!config || !config.outboundDrivers) {
+      console.warn('[DriverManager] No outbound drivers configured.');
+      return;
+    }
 
-    for (const name of activeDriverNames) {
+    for (const [driverName, driverConfig] of Object.entries(config.outboundDrivers)) {
       let driver: McpDriver;
+      const prefix = `${driverName}_`;
 
-      switch (name as McpDriverType) {
-        case McpDriverType.BIGQUERY:
-          driver = new BigQueryDriver();
+      switch (driverConfig.type) {
+        case 'bigquery':
+          driver = new BigQueryDriver({ name: driverName, prefix });
           break;
-        case McpDriverType.STDIO:
-          driver = new StdioDriver();
+        case 'stdio':
+          if (!driverConfig.command) {
+            console.error(`[DriverManager] Driver ${driverName} of type stdio missing command`);
+            continue;
+          }
+          driver = new StdioDriver({
+            name: driverName,
+            prefix,
+            command: driverConfig.command,
+            args: driverConfig.args || [],
+            env: {
+              ...process.env,
+              ...(driverConfig.env || {})
+            }
+          });
           break;
-        case McpDriverType.SSE:
-          driver = new SseDriver();
+        case 'sse':
+          if (!driverConfig.url) {
+            console.error(`[DriverManager] Driver ${driverName} of type sse missing url`);
+            continue;
+          }
+          driver = new SseDriver({
+            name: driverName,
+            prefix,
+            url: driverConfig.url
+          });
           break;
         default:
-          console.warn(`[DriverManager] Unknown driver requested: ${name}`);
+          console.warn(`[DriverManager] Unknown driver type for ${driverName}`);
           continue;
       }
 
       try {
         await driver.initialize();
-        this.drivers.set(name, driver);
-        console.log(`[DriverManager] Initialized driver: ${name}`);
+        this.drivers.set(driverName, driver);
+        console.log(`[DriverManager] Initialized driver: ${driverName}`);
       } catch (err: any) {
-        console.error(`[DriverManager] Failed to initialize driver ${name}:`, err.message);
+        console.error(`[DriverManager] Failed to initialize driver ${driverName}:`, err.message);
       }
     }
 
@@ -70,9 +96,18 @@ export class DriverManager {
     }
   }
 
-  async getToolsList(): Promise<any[]> {
-    // Return aggregated list of namespaced tools
+  async getToolsList(allowedDrivers?: string[]): Promise<any[]> {
+    if (allowedDrivers) {
+      return this.cachedToolsList.filter(tool => {
+        const driverName = this.toolRegistry.get(tool.name);
+        return driverName && allowedDrivers.includes(driverName);
+      });
+    }
     return this.cachedToolsList;
+  }
+
+  getDriverNameForTool(namespacedName: string): string | undefined {
+    return this.toolRegistry.get(namespacedName);
   }
 
   async callTool(namespacedName: string, args: any): Promise<any> {

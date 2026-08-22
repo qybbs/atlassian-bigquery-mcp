@@ -57,7 +57,7 @@ describe('Express Server API', () => {
   describe('POST /mcp', () => {
     it('harus menolak request tanpa header Authorization', async () => {
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .send({
           jsonrpc: '2.0',
           method: 'tools/list',
@@ -70,7 +70,7 @@ describe('Express Server API', () => {
 
     it('harus menolak request dengan token invalid', async () => {
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', 'Bearer invalid.token.here')
         .send({
           jsonrpc: '2.0',
@@ -91,7 +91,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '1.0',
@@ -112,7 +112,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '2.0',
@@ -133,7 +133,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '2.0',
@@ -147,4 +147,3 @@ describe('Express Server API', () => {
     });
   });
 });
-

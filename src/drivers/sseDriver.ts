@@ -2,19 +2,23 @@ import { McpDriver } from '../core/mcp/driver';
 import axios from 'axios';
 
 export class SseDriver implements McpDriver {
-  name = 'sse';
-  prefix = 'sse_';
+  name: string;
+  prefix: string;
 
-  private endpointUrl: string = '';
+  private endpointUrl: string;
   private cachedTools: any[] | null = null;
   private messageCounter = 0;
 
+  constructor(config: { name: string; prefix: string; url: string }) {
+    this.name = config.name;
+    this.prefix = config.prefix;
+    this.endpointUrl = config.url;
+  }
+
   async initialize(): Promise<void> {
-    const url = process.env.SSE_DRIVER_URL;
-    if (!url) {
-      throw new Error('SSE_DRIVER_URL is required to initialize SseDriver');
+    if (!this.endpointUrl) {
+      throw new Error(`URL is required to initialize SseDriver for ${this.name}`);
     }
-    this.endpointUrl = url;
 
     // Optional: You could establish EventSource here if the downstream SSE server
     // pushes updates. For simple stateless request/response, HTTP POST might suffice 

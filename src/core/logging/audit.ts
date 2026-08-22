@@ -7,13 +7,10 @@ export const writeAuditLog = (log: {
   requestId: string | number;
   userEmail: string;
   toolName: string;
-  sql?: string;
-  bytesEstimate?: number;
-  tablesTouched?: string[];
   status: 'SUCCESS' | 'FAILED' | 'REJECTED';
   denialReason?: string;
   error?: string;
-  rowCount?: number;
+  metadata?: Record<string, any>;
 }) => {
   const safeUserEmail = sanitizeLogString(log.userEmail);
   const safeToolName = sanitizeLogString(log.toolName);
@@ -35,12 +32,9 @@ export const writeAuditLog = (log: {
       userEmail: safeUserEmail,
       toolName: safeToolName,
       status: safeStatus,
-      sql: log.sql ? sanitizeLogString(log.sql) : undefined,
       denialReason: log.denialReason ? sanitizeLogString(log.denialReason) : undefined,
       error: log.error ? sanitizeLogString(log.error) : undefined,
-      bytesEstimate: log.bytesEstimate,
-      rowCount: log.rowCount,
-      tablesTouched: log.tablesTouched ? log.tablesTouched.map(t => sanitizeLogString(t)) : undefined,
+      ...(log.metadata || {})
     },
   };
   console.log(JSON.stringify(auditLogEntry));

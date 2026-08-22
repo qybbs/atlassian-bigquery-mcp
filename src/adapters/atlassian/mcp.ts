@@ -11,15 +11,28 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
 
   const token = authHeader.split(' ')[1];
   let userEmail: string;
+  let tokenDriverName: string | undefined;
 
   // Validate OAuth 2.1 JWT Access Token
   try {
     const payload = await verifyJwt(token);
     userEmail = payload.email as string;
+    tokenDriverName = payload.driverName as string | undefined;
   } catch (e: any) {
     console.warn('[MCP Auth] Invalid token access attempt:', sanitizeLogString(e.message));
     return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: `Unauthorized: Token validation failed (${sanitizeLogString(e.message)})` } });
   }
+
+  const pathDriverName = req.params.driverName;
+  
+  // If the path asks for a specific driver, the token must be scoped to that driver or have no scope.
+  // Actually, if the token is scoped to a different driver, deny access.
+  if (pathDriverName && tokenDriverName && pathDriverName !== tokenDriverName) {
+    return res.status(403).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Forbidden: Token driver scope does not match requested path driver' } });
+  }
+
+  // Allow list for scoping outbound calls
+  const allowedDrivers = pathDriverName ? [pathDriverName] : (tokenDriverName ? [tokenDriverName] : undefined);
 
   const { jsonrpc, id, method, params } = req.body;
 
@@ -29,7 +42,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
   console.log(`[MCP Router] User: ${safeEmail} | Method: ${safeMethod} | ID: ${safeId}`);
   console.log(`[MCP Router] Request length: ${req.body ? JSON.stringify(req.body).length : 0}`);
 
-  const mcpResponse = await routeMcpRequest({ jsonrpc, id, method, params }, userEmail);
+  const mcpResponse = await routeMcpRequest({ jsonrpc, id, method, params }, userEmail, allowedDrivers);
   
   if (mcpResponse === null) {
     return res.status(202).end();

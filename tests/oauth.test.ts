@@ -26,7 +26,7 @@ describe('OAuth Endpoints', () => {
   describe('POST /register', () => {
     it('harus meregistrasi client dan mengembalikan client_id terenkripsi', async () => {
       const response = await request(app)
-        .post('/register')
+        .post('/atlassian/register')
         .send({
           client_name: 'Test Client',
           redirect_uris: [redirectUri]
@@ -43,7 +43,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak registrasi tanpa redirect_uris', async () => {
       const response = await request(app)
-        .post('/register')
+        .post('/atlassian/register')
         .send({
           client_name: 'Test Client'
         });
@@ -56,7 +56,7 @@ describe('OAuth Endpoints', () => {
   describe('GET /oauth/authorize', () => {
     it('harus menampilkan halaman otorisasi dan set cookie oauth_flow', async () => {
       const response = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -67,7 +67,7 @@ describe('OAuth Endpoints', () => {
         });
       
       expect(response.status).toBe(200);
-      expect(response.text).toContain('<form action="/oauth/login"');
+      expect(response.text).toContain('<form action="/atlassian/oauth/login"');
       
       // Verify cookie is set
       const cookies = response.headers['set-cookie'];
@@ -77,7 +77,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak permintaan jika client_id invalid', async () => {
       const response = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: 'invalid-client-id-format',
           redirect_uri: redirectUri,
@@ -93,7 +93,7 @@ describe('OAuth Endpoints', () => {
   describe('POST /oauth/login', () => {
     it('harus menolak login jika cookie oauth_flow tidak ada', async () => {
       const response = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .send({
           email: 'test@example.com',
           password: 'password123'
@@ -105,7 +105,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus berhasil login dengan kredensial yang benar', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -118,7 +118,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -132,7 +132,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak login jika email atau password salah', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -145,7 +145,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const response = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -158,7 +158,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak login jika flow token tidak valid', async () => {
       const response = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', 'oauth_flow=invalid.token.here')
         .send({
           email: 'test@example.com',
@@ -173,7 +173,7 @@ describe('OAuth Endpoints', () => {
   describe('POST /oauth/token', () => {
     it('harus menolak jika grant_type bukan authorization_code', async () => {
       const response = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'client_credentials'
         });
@@ -184,7 +184,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak jika code tidak ada', async () => {
       const response = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code'
         });
@@ -195,7 +195,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus sukses menukarkan authorization code dengan access token', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -208,7 +208,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -219,7 +219,7 @@ describe('OAuth Endpoints', () => {
       const code = redirectUrl.searchParams.get('code') || '';
 
       const tokenResponse = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code',
           code,
@@ -235,7 +235,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus mendukung Basic Auth header untuk client_id', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -248,7 +248,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -260,7 +260,7 @@ describe('OAuth Endpoints', () => {
 
       const credentials = Buffer.from(`${clientId}:`).toString('base64');
       const tokenResponse = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .set('Authorization', `Basic ${credentials}`)
         .send({
           grant_type: 'authorization_code',
@@ -275,7 +275,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak jika code token tidak valid atau kedaluwarsa', async () => {
       const response = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code',
           code: 'invalid.jwe.code',
@@ -290,7 +290,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak jika client_id tidak cocok dengan code issuer', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -303,7 +303,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -314,7 +314,7 @@ describe('OAuth Endpoints', () => {
       const code = redirectUrl.searchParams.get('code') || '';
 
       const tokenResponse = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code',
           code,
@@ -336,7 +336,7 @@ describe('OAuth Endpoints', () => {
         .digest('base64url');
 
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -349,7 +349,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -360,7 +360,7 @@ describe('OAuth Endpoints', () => {
       const code = redirectUrl.searchParams.get('code') || '';
 
       const tokenResponse = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code',
           code,
@@ -375,7 +375,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak token exchange jika PKCE challenge tidak cocok', async () => {
       const authResponse = await request(app)
-        .get('/oauth/authorize')
+        .get('/atlassian/oauth/authorize')
         .query({
           client_id: clientId,
           redirect_uri: redirectUri,
@@ -388,7 +388,7 @@ describe('OAuth Endpoints', () => {
       const cookie = authResponse.headers['set-cookie'][0].split(';')[0];
 
       const loginResponse = await request(app)
-        .post('/oauth/login')
+        .post('/atlassian/oauth/login')
         .set('Cookie', cookie)
         .send({
           email: 'test@example.com',
@@ -399,7 +399,7 @@ describe('OAuth Endpoints', () => {
       const code = redirectUrl.searchParams.get('code') || '';
 
       const tokenResponse = await request(app)
-        .post('/oauth/token')
+        .post('/atlassian/oauth/token')
         .send({
           grant_type: 'authorization_code',
           code,
@@ -450,7 +450,7 @@ describe('OAuth Endpoints', () => {
       process.env.OIDC_REDIRECT_URI = 'http://localhost/callback';
 
       const response = await request(app)
-        .get('/oauth/callback')
+        .get('/atlassian/oauth/callback')
         .query({
           code: 'oidc-auth-code',
           state: stateToken
@@ -465,7 +465,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak callback jika code atau state tidak ada', async () => {
       const response = await request(app)
-        .get('/oauth/callback')
+        .get('/atlassian/oauth/callback')
         .query({
           code: 'oidc-auth-code'
         });
@@ -475,7 +475,7 @@ describe('OAuth Endpoints', () => {
 
     it('harus menolak callback jika state invalid', async () => {
       const response = await request(app)
-        .get('/oauth/callback')
+        .get('/atlassian/oauth/callback')
         .query({
           code: 'oidc-auth-code',
           state: 'invalid-state-token'

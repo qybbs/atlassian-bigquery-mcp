@@ -42,7 +42,9 @@ export const registerClient = async (req: express.Request, res: express.Response
     const clientRepository = ClientRepositoryFactory.getRepository();
     const client = await clientRepository.register(client_name, redirect_uris);
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const driverName = req.params.driverName;
+    const prefix = driverName ? `/${driverName}` : '';
+    const baseUrl = `${req.protocol}://${req.get('host')}${req.baseUrl}${prefix}`;
 
     console.log(`[DCR] Registered client using ${process.env.DCR_PERSISTENCE_MODE || 'STATELESS'} mode.`);
 
@@ -98,6 +100,9 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       return res.status(400).send('Redirect URI not registered for this client');
     }
 
+    const driverName = req.params.driverName;
+    const prefix = driverName ? `/${driverName}` : '';
+
     if (process.env.AUTH_PROVIDER === 'OIDC') {
       const oidcState = await encryptJwe({
         client_id,
@@ -106,6 +111,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
         state,
         code_challenge,
         code_challenge_method,
+        driverName,
       }, '10m');
 
       const oidcAuthUrl = new URL(process.env.OIDC_AUTHORIZATION_ENDPOINT as string);
@@ -125,6 +131,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
       state: stateStr,
       code_challenge,
       code_challenge_method: code_challenge_method === 'plain' ? 'plain' : 'S256',
+      driverName,
     }, '15m');
 
     const isSecure = req.protocol === 'https' || req.secure;
@@ -235,7 +242,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
           ${errorMessage}
-          <form action="/oauth/login" method="POST">
+          <form action="${req.baseUrl}${prefix}/oauth/login" method="POST">
             
             <div class="form-group">
               <label for="email">Email</label>
@@ -325,6 +332,7 @@ export const handleOidcCallback = async (req: express.Request, res: express.Resp
       email,
       code_challenge: atlassianParams.code_challenge,
       code_challenge_method: atlassianParams.code_challenge_method,
+      driverName: atlassianParams.driverName,
     }, '5m');
 
     const redirectUrl = new URL(atlassianParams.redirect_uri);
@@ -361,7 +369,7 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       return res.status(400).send('Invalid session state');
     }
 
-    const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = flowData;
+    const { client_id, redirect_uri, state, code_challenge, code_challenge_method, driverName } = flowData;
     const { email, password } = req.body;
 
     const mockEmail = process.env.MOCK_USER_EMAIL || 'user@example.com';
@@ -369,7 +377,8 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
 
     if (email !== mockEmail || password !== mockPassword) {
       res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
-      const authorizeUrl = `/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}&error=login_failed`;
+      const prefix = driverName ? `/${driverName}` : '';
+      const authorizeUrl = `${req.baseUrl}${prefix}/oauth/authorize?client_id=${encodeURIComponent(client_id)}&redirect_uri=${encodeURIComponent(redirect_uri)}&code_challenge=${encodeURIComponent(code_challenge)}&code_challenge_method=${encodeURIComponent(code_challenge_method)}&state=${encodeURIComponent(state)}&error=login_failed`;
       return res.redirect(authorizeUrl);
     }
 
@@ -379,6 +388,7 @@ export const submitLogin = async (req: express.Request, res: express.Response) =
       email,
       code_challenge,
       code_challenge_method,
+      driverName,
     }, '5m');
 
     res.setHeader('Set-Cookie', 'oauth_flow=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
@@ -437,10 +447,12 @@ export const tokenExchange = async (req: express.Request, res: express.Response)
     }
 
     const user_email = authCodePayload.email;
+    const driverName = authCodePayload.driverName;
     const access_token = await signJwt({
       email: user_email,
       client_id,
       scope: 'mcp:execute',
+      driverName,
     }, process.env.TOKEN_EXPIRATION || '1h');
 
     console.log(`[OAuth] Issued Access Token for: ${user_email}`);

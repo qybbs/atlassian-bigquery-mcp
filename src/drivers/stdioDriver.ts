@@ -3,8 +3,11 @@ import { createInterface } from 'readline';
 import { McpDriver } from '../core/mcp/driver';
 
 export class StdioDriver implements McpDriver {
-  name = 'stdio';
-  prefix = 'stdio_';
+  name: string;
+  prefix: string;
+  private command: string;
+  private args: string[];
+  private env: NodeJS.ProcessEnv | undefined;
 
   private process: ChildProcess | null = null;
   private messageCounter = 0;
@@ -13,18 +16,22 @@ export class StdioDriver implements McpDriver {
   // This will store the cached tools from the downstream server
   private cachedTools: any[] | null = null;
 
+  constructor(config: { name: string; prefix: string; command: string; args?: string[]; env?: Record<string, string> }) {
+    this.name = config.name;
+    this.prefix = config.prefix;
+    this.command = config.command;
+    this.args = config.args || [];
+    this.env = config.env;
+  }
+
   async initialize(): Promise<void> {
-    const command = process.env.STDIO_DRIVER_COMMAND;
-    const argsRaw = process.env.STDIO_DRIVER_ARGS || '';
-    
-    if (!command) {
-      throw new Error('STDIO_DRIVER_COMMAND is required to initialize StdioDriver');
+    if (!this.command) {
+      throw new Error(`Command is required to initialize StdioDriver for ${this.name}`);
     }
 
-    const args = argsRaw.split(' ').map(s => s.trim()).filter(Boolean);
-
-    this.process = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'inherit'] // pass stderr to main process
+    this.process = spawn(this.command, this.args, {
+      stdio: ['pipe', 'pipe', 'inherit'], // pass stderr to main process
+      env: this.env
     });
 
     this.process.on('error', (err) => {

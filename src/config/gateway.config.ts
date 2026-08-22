@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
+import path from 'path';
 import { DcrPersistenceMode } from '../core/auth/types';
 import { McpDriverType } from '../core/mcp/driver';
+import { GatewayConfig } from './types';
 
 dotenv.config();
+
+export let gatewayConfig: GatewayConfig | null = null;
 
 const validateMasterSecretKey = (errors: string[]) => {
   const key = process.env.MASTER_SECRET_KEY;
@@ -115,38 +119,35 @@ const validateDcrPersistenceMode = (errors: string[]) => {
   }
 };
 
-const validateDriversConfig = (errors: string[]) => {
-  const activeDriversRaw = process.env.ACTIVE_DRIVERS;
-  if (!activeDriversRaw) {
-    errors.push(`ACTIVE_DRIVERS is not set. It must contain at least one valid driver (e.g., ${Object.values(McpDriverType).join(', ')}).`);
-    return;
-  }
+const loadGatewayConfig = (errors: string[]) => {
+  const configPath = process.env.GATEWAY_CONFIG_PATH || path.join(process.cwd(), 'gateway-mcp-config.json');
   
-  const drivers = activeDriversRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  if (drivers.length === 0) {
-    errors.push('ACTIVE_DRIVERS is empty.');
+  if (!fs.existsSync(configPath)) {
+    errors.push(`Gateway configuration file not found at ${configPath}. Please create one (see gateway-mcp-config.example.json).`);
     return;
   }
 
-  const validDriverTypes = Object.values(McpDriverType) as string[];
-  drivers.forEach(driver => {
-    if (!validDriverTypes.includes(driver)) {
-      errors.push(`Invalid driver in ACTIVE_DRIVERS: "${driver}". Supported drivers are: ${validDriverTypes.join(', ')}.`);
-    }
-  });
+  try {
+    let configContent = fs.readFileSync(configPath, 'utf-8');
+    
+    // Environment variable substitution ${VAR_NAME}
+    configContent = configContent.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+      return process.env[varName] || '';
+    });
 
-  if (drivers.includes('stdio')) {
-    if (!process.env.STDIO_DRIVER_COMMAND) {
-      errors.push('STDIO_DRIVER_COMMAND is required when "stdio" driver is active.');
+    const parsed = JSON.parse(configContent);
+    
+    // Basic structural validation
+    if (!parsed.outboundDrivers || typeof parsed.outboundDrivers !== 'object') {
+      errors.push('Config must have an "outboundDrivers" object.');
     }
-  }
+    if (!parsed.inboundAdapters || typeof parsed.inboundAdapters !== 'object') {
+      errors.push('Config must have an "inboundAdapters" object.');
+    }
 
-  if (drivers.includes('sse')) {
-    if (!process.env.SSE_DRIVER_URL) {
-      errors.push('SSE_DRIVER_URL is required when "sse" driver is active.');
-    } else if (!process.env.SSE_DRIVER_URL.startsWith('http://') && !process.env.SSE_DRIVER_URL.startsWith('https://')) {
-      errors.push(`Invalid URL format in SSE_DRIVER_URL: "${process.env.SSE_DRIVER_URL}"`);
-    }
+    gatewayConfig = parsed as GatewayConfig;
+  } catch (err: any) {
+    errors.push(`Failed to parse ${configPath}: ${err.message}`);
   }
 };
 
@@ -158,7 +159,7 @@ export const validateEnv = (): void => {
   validateAllowlistTables(errors);
   validateAuthProvider(errors);
   validateDcrPersistenceMode(errors);
-  validateDriversConfig(errors);
+  loadGatewayConfig(errors);
   
   validatePositiveInteger(process.env.MAX_BYTES_BILLED, 'MAX_BYTES_BILLED', errors);
   validatePositiveInteger(process.env.ROW_LIMIT, 'ROW_LIMIT', errors);

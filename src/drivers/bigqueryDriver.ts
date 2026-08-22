@@ -6,12 +6,17 @@ import {
   executeReadonlyQuery, 
   searchAllowedTables 
 } from './bigquery';
+import { validateQuerySafety } from './bigqueryPolicy';
+import { PolicyError } from '../core/mcp/policy';
 
 export class BigQueryDriver implements McpDriver {
-  name = 'bigquery';
-  // Untuk menjaga kompatibilitas dengan Atlassian Rovo yang sudah berjalan,
-  // BigQuery sebagai primary driver tidak menggunakan prefix.
-  prefix = '';
+  name: string;
+  prefix: string;
+
+  constructor(config?: { name?: string; prefix?: string }) {
+    this.name = config?.name || 'bigquery';
+    this.prefix = config?.prefix || 'bigquery_';
+  }
 
   async initialize(): Promise<void> {
     // Klien BigQuery diinisialisasi secara sinkron di './bigquery',
@@ -78,8 +83,11 @@ export class BigQueryDriver implements McpDriver {
 
   async callTool(name: string, args: any): Promise<any> {
     switch (name) {
-      case 'list_allowed_tables':
-        return await listAllowedTables();
+      case 'list_allowed_tables': {
+        const result = await listAllowedTables();
+        (result as any)._audit = { rowCount: result.length };
+        return result;
+      }
       
       case 'describe_table': {
         const { datasetId, tableId } = args;
@@ -92,23 +100,34 @@ export class BigQueryDriver implements McpDriver {
       case 'estimate_query_cost': {
         const { sql } = args;
         if (!sql) throw new Error('sql query parameter is required.');
+        const safety = validateQuerySafety(sql);
+        if (!safety.safe) throw new PolicyError(safety.reason!, { tablesTouched: safety.detectedTables, sql });
+
         const estimate = await estimateQueryCost(sql);
         if (!estimate.valid) {
           throw new Error(estimate.error);
         }
+        (estimate as any)._audit = { tablesTouched: safety.detectedTables, bytesEstimate: estimate.bytesScanned, sql };
         return estimate;
       }
       
       case 'execute_readonly_query': {
         const { sql } = args;
         if (!sql) throw new Error('sql query parameter is required.');
-        return await executeReadonlyQuery(sql);
+        const safety = validateQuerySafety(sql);
+        if (!safety.safe) throw new PolicyError(safety.reason!, { tablesTouched: safety.detectedTables, sql });
+
+        const result = await executeReadonlyQuery(sql);
+        (result as any)._audit = { tablesTouched: safety.detectedTables, rowCount: result.length, sql };
+        return result;
       }
 
       case 'search_allowed_tables': {
         const { keyword } = args;
         if (!keyword) throw new Error('keyword is required.');
-        return await searchAllowedTables(keyword);
+        const result = await searchAllowedTables(keyword);
+        (result as any)._audit = { rowCount: result.length };
+        return result;
       }
 
       default:

@@ -53,8 +53,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// OAuth 2.0 / OIDC Discovery Endpoints (RFC 8414)
+// Atlassian checks these on the root domain when setting up an external MCP server
+app.get(['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'], (req, res) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}/atlassian`;
+  res.json({
+    issuer: baseUrl,
+    registration_endpoint: `${baseUrl}/register`,
+    authorization_endpoint: `${baseUrl}/oauth/authorize`,
+    token_endpoint: `${baseUrl}/oauth/token`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256', 'plain']
+  });
+});
+
+app.use('/.well-known/oauth-protected-resource', (req, res) => {
+  res.json({
+    authorization_server: `${req.protocol}://${req.get('host')}`
+  });
+});
+
 // Mount Atlassian Adapter Routes
-app.use('/', atlassianRouter);
+app.use('/atlassian', atlassianRouter);
 
 // Simple Health Check
 app.get('/', (req, res) => {

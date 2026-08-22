@@ -1,17 +1,26 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { driverManager } from '../src/core/mcp/driverManager';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import path from 'path';
+
+vi.mock('../src/config/gateway.config', () => ({
+  gatewayConfig: {
+    outboundDrivers: {
+      stdio: {
+        type: 'stdio',
+        command: 'node',
+        args: [path.join(__dirname, 'mock-stdio-server.js')]
+      }
+    }
+  }
+}));
+
+import { driverManager } from '../src/core/mcp/driverManager';
 
 describe('DriverManager', () => {
   const originalEnv = process.env;
 
   beforeAll(async () => {
     process.env = { ...originalEnv };
-    process.env.ACTIVE_DRIVERS = 'stdio'; // Test with stdio to verify child_process works
-    process.env.STDIO_DRIVER_COMMAND = 'node';
-    process.env.STDIO_DRIVER_ARGS = path.join(__dirname, 'mock-stdio-server.js');
-    
-    // We don't initialize bigquery here to avoid GCP credentials requirements in this specific test
+
     await driverManager.initialize();
   });
 

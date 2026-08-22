@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { validateQuerySafety } from '../src/core/mcp/policy';
+import { validateQuerySafety } from '../src/drivers/bigqueryPolicy';
 import * as bigquery from '../src/drivers/bigquery';
 
 describe('validateQuerySafety', () => {

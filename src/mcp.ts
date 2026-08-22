@@ -64,7 +64,7 @@ export const validateQuerySafety = (sql: string): { safe: boolean; reason?: stri
 
 const sanitizeLogString = (val: any): string => {
   if (val === undefined || val === null) return '';
-  return encodeURIComponent(String(val));
+  return String(val).replace(/[\r\n]/g, '');
 };
 
 // Helper for structured JSON logging (auto-parsed by Google Cloud Logging)
@@ -96,7 +96,7 @@ const writeAuditLog = (log: {
     severity,
     message: `[MCP AUDIT] ${safeUserEmail} executed ${safeToolName} - ${safeStatus}`,
     audit: {
-      requestId: log.requestId,
+      requestId: sanitizeLogString(log.requestId),
       userEmail: safeUserEmail,
       toolName: safeToolName,
       status: safeStatus,
@@ -517,9 +517,9 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
     return res.status(400).json({ jsonrpc: '2.0', id: id || null, error: { code: -32600, message: 'Invalid Request: jsonrpc must be "2.0"' } });
   }
 
-  const safeEmail = encodeURIComponent(userEmail || '');
-  const safeMethod = encodeURIComponent(method || '');
-  const safeId = encodeURIComponent(String(id || ''));
+  const safeEmail = sanitizeLogString(userEmail);
+  const safeMethod = sanitizeLogString(method);
+  const safeId = sanitizeLogString(id);
   console.log(`[MCP Router] User: ${safeEmail} | Method: ${safeMethod} | ID: ${safeId}`);
   console.log(`[MCP Router] Request length: ${req.body ? JSON.stringify(req.body).length : 0}`);
 

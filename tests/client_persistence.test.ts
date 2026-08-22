@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { StatelessClientRepository } from '../src/core/auth/statelessClientRepository';
 import { MemoryClientRepository } from '../src/core/auth/memoryClientRepository';
 import { DcrPersistenceMode } from '../src/core/auth/types';
+import { McpDriverType } from '../src/core/mcp/driver';
 
 describe('Client Persistence Repositories', () => {
   beforeAll(() => {
@@ -12,6 +13,7 @@ describe('Client Persistence Repositories', () => {
     process.env.MOCK_USER_EMAIL = 'test@example.com';
     process.env.MOCK_USER_PASSWORD = 'password123';
     process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
+    process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
   });
 
   describe('StatelessClientRepository', () => {

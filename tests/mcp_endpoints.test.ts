@@ -3,6 +3,8 @@ import request from 'supertest';
 import * as jose from 'jose';
 import app from '../src/server';
 import { DcrPersistenceMode } from '../src/core/auth/types';
+import { driverManager } from '../src/core/mcp/driverManager';
+import { McpDriverType } from '../src/core/mcp/driver';
 
 // Mock @google-cloud/bigquery
 vi.mock('@google-cloud/bigquery', () => {
@@ -47,7 +49,7 @@ vi.mock('@google-cloud/bigquery', () => {
   return { BigQuery: BigQueryMock };
 });
 
-describe('MCP Endpoint Tests', () => {
+describe('MCP Transport Endpoint (POST /mcp)', () => {
   let token: string;
   const masterSecret = 'a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ=';
 
@@ -56,6 +58,9 @@ describe('MCP Endpoint Tests', () => {
     process.env.GCP_PROJECT_ID = 'test-project';
     process.env.ALLOWLIST_TABLES = 'dataset1.table1,project2.dataset2.table2';
     process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
+    process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
+
+    await driverManager.initialize();
 
     const secretKey = Buffer.from(masterSecret, 'base64');
     token = await new jose.SignJWT({

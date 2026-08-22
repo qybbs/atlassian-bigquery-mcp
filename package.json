@@ -25,6 +25,7 @@
     "@google-cloud/bigquery": "^8.3.1",
     "@google-cloud/firestore": "^8.7.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "axios": "^1.19.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

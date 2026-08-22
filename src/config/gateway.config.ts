@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
 import { DcrPersistenceMode } from '../core/auth/types';
+import { McpDriverType } from '../core/mcp/driver';
 
 dotenv.config();
 
@@ -114,6 +115,41 @@ const validateDcrPersistenceMode = (errors: string[]) => {
   }
 };
 
+const validateDriversConfig = (errors: string[]) => {
+  const activeDriversRaw = process.env.ACTIVE_DRIVERS;
+  if (!activeDriversRaw) {
+    errors.push(`ACTIVE_DRIVERS is not set. It must contain at least one valid driver (e.g., ${Object.values(McpDriverType).join(', ')}).`);
+    return;
+  }
+  
+  const drivers = activeDriversRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (drivers.length === 0) {
+    errors.push('ACTIVE_DRIVERS is empty.');
+    return;
+  }
+
+  const validDriverTypes = Object.values(McpDriverType) as string[];
+  drivers.forEach(driver => {
+    if (!validDriverTypes.includes(driver)) {
+      errors.push(`Invalid driver in ACTIVE_DRIVERS: "${driver}". Supported drivers are: ${validDriverTypes.join(', ')}.`);
+    }
+  });
+
+  if (drivers.includes('stdio')) {
+    if (!process.env.STDIO_DRIVER_COMMAND) {
+      errors.push('STDIO_DRIVER_COMMAND is required when "stdio" driver is active.');
+    }
+  }
+
+  if (drivers.includes('sse')) {
+    if (!process.env.SSE_DRIVER_URL) {
+      errors.push('SSE_DRIVER_URL is required when "sse" driver is active.');
+    } else if (!process.env.SSE_DRIVER_URL.startsWith('http://') && !process.env.SSE_DRIVER_URL.startsWith('https://')) {
+      errors.push(`Invalid URL format in SSE_DRIVER_URL: "${process.env.SSE_DRIVER_URL}"`);
+    }
+  }
+};
+
 export const validateEnv = (): void => {
   const errors: string[] = [];
 
@@ -122,6 +158,7 @@ export const validateEnv = (): void => {
   validateAllowlistTables(errors);
   validateAuthProvider(errors);
   validateDcrPersistenceMode(errors);
+  validateDriversConfig(errors);
   
   validatePositiveInteger(process.env.MAX_BYTES_BILLED, 'MAX_BYTES_BILLED', errors);
   validatePositiveInteger(process.env.ROW_LIMIT, 'ROW_LIMIT', errors);

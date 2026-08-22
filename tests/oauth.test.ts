@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import app from '../src/server';
 
 import { DcrPersistenceMode } from '../src/core/auth/types';
+import { McpDriverType } from '../src/core/mcp/driver';
 
 describe('OAuth Endpoints', () => {
   beforeAll(() => {
@@ -15,6 +16,7 @@ describe('OAuth Endpoints', () => {
     process.env.GCP_PROJECT_ID = 'mock-project';
     process.env.ALLOWLIST_TABLES = 'dataset.mock_table';
     process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.MEMORY;
+    process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
   });
 
   let clientId: string;

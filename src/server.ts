@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import atlassianRouter from './adapters/atlassian/routes';
 import { validateEnv } from './config/gateway.config';
+import { driverManager } from './core/mcp/driverManager';
 
 // Load environment variables
 dotenv.config();
@@ -66,20 +67,23 @@ app.get('/health', (req, res) => {
 
 // Start Server
 if (process.env.NODE_ENV !== 'test') {
-  try {
-    validateEnv();
-  } catch (error: any) {
-    console.error(`[FATAL] Startup validation failed: ${error.message}`);
-    process.exit(1);
-  }
+  (async () => {
+    try {
+      validateEnv();
+      await driverManager.initialize();
+    } catch (error: any) {
+      console.error(`[FATAL] Startup validation/initialization failed: ${error.message}`);
+      process.exit(1);
+    }
 
-  app.listen(port, () => {
-    console.log(`Enterprise SaaS-to-MCP Gateway is running at http://localhost:${port}`);
-    console.log(`DCR Endpoint: http://localhost:${port}/register`);
-    console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
-    console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
-    console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
-  });
+    app.listen(port, () => {
+      console.log(`Enterprise SaaS-to-MCP Gateway is running at http://localhost:${port}`);
+      console.log(`DCR Endpoint: http://localhost:${port}/register`);
+      console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
+      console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
+      console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
+    });
+  })();
 }
 
 export default app;

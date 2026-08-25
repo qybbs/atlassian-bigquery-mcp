@@ -242,7 +242,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
           <div class="title">Mock SSO Otorisasi</div>
           <div class="subtitle">Personal project test login</div>
           ${errorMessage}
-          <form action="${req.baseUrl}${prefix}/oauth/login" method="POST">
+          <form action="${escapeHtml(req.baseUrl)}${escapeHtml(prefix)}/oauth/login" method="POST">
             
             <div class="form-group">
               <label for="email">Email</label>

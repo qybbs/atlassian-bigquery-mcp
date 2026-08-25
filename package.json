@@ -28,11 +28,13 @@
     "axios": "^1.19.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "escape-html": "^1.0.3",
     "express": "^5.2.1",
     "jose": "^6.2.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
+    "@types/escape-html": "^1.0.4",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
     "@types/supertest": "^7.2.1",

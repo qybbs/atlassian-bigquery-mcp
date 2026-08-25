@@ -13,15 +13,7 @@ const parseCookies = (cookieHeader?: string): Record<string, string> => {
   return list;
 };
 
-const escapeHtml = (unsafe: any): string => {
-  if (unsafe === undefined || unsafe === null) return '';
-  return String(unsafe)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-};
+import escapeHtml from 'escape-html';
 
 // 1. Dynamic Client Registration (DCR - RFC 7591)
 export const registerClient = async (req: express.Request, res: express.Response) => {
@@ -43,6 +35,9 @@ export const registerClient = async (req: express.Request, res: express.Response
     const client = await clientRepository.register(client_name, redirect_uris);
 
     const driverName = req.params.driverName;
+    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName)) {
+      return res.status(400).json({ error: 'invalid_request', error_description: 'Invalid driverName format' });
+    }
     const prefix = driverName ? `/${driverName}` : '';
     const baseUrl = `${req.protocol}://${req.get('host')}${req.baseUrl}${prefix}`;
 
@@ -101,6 +96,9 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
     }
 
     const driverName = req.params.driverName;
+    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName)) {
+      return res.status(400).send('Invalid driverName format');
+    }
     const prefix = driverName ? `/${driverName}` : '';
 
     if (process.env.AUTH_PROVIDER === 'OIDC') {

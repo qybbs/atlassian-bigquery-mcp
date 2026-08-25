@@ -1,0 +1,30 @@
+{
+  "outboundDrivers": {
+    "bigquery": {
+      "type": "bigquery"
+    },
+    "sonarqube": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "sonarqube-api-mcp"],
+      "env": {
+        "SONAR_HOST_URL": "https://sonarcloud.io",
+        "SONAR_TOKEN": "${SONARQUBE_TOKEN}"
+      }
+    },
+    "internal-tool": {
+      "type": "sse",
+      "url": "http://localhost:4000/sse"
+    }
+  },
+  "inboundAdapters": {
+    "atlassian": {
+      "enabled": true,
+      "allowedDrivers": ["bigquery"]
+    },
+    "openai-actions": {
+      "enabled": true,
+      "allowedDrivers": ["bigquery", "sonarqube", "internal-tool"]
+    }
+  }
+}

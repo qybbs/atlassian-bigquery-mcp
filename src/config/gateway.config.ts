@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
+import path from 'path';
+import { DcrPersistenceMode } from '../core/auth/types';
+import { McpDriverType } from '../core/mcp/driver';
+import { GatewayConfig } from './types';
 
 dotenv.config();
+
+export let gatewayConfig: GatewayConfig | null = null;
 
 const validateMasterSecretKey = (errors: string[]) => {
   const key = process.env.MASTER_SECRET_KEY;
@@ -103,6 +109,52 @@ const validatePositiveInteger = (value: string | undefined, varName: string, err
   }
 };
 
+const validateDcrPersistenceMode = (errors: string[]) => {
+  const mode = process.env.DCR_PERSISTENCE_MODE;
+  const validModes = Object.values(DcrPersistenceMode) as string[];
+  if (!mode) {
+    errors.push(`DCR_PERSISTENCE_MODE is required. Must be one of: ${validModes.join(', ')}.`);
+  } else if (!validModes.includes(mode.toUpperCase())) {
+    errors.push(`DCR_PERSISTENCE_MODE must be one of: ${validModes.join(', ')}. Got: "${mode}".`);
+  }
+};
+
+const loadGatewayConfig = (errors: string[]) => {
+  let configPath = process.env.GATEWAY_CONFIG_PATH || path.join(process.cwd(), 'gateway-mcp-config.json');
+  
+  if (!fs.existsSync(configPath) && process.env.NODE_ENV === 'test') {
+    configPath = path.join(process.cwd(), 'gateway-mcp-config.example.json');
+  }
+
+  if (!fs.existsSync(configPath)) {
+    errors.push(`Gateway configuration file not found at ${configPath}. Please create one (see gateway-mcp-config.example.json).`);
+    return;
+  }
+
+  try {
+    let configContent = fs.readFileSync(configPath, 'utf-8');
+    
+    // Environment variable substitution ${VAR_NAME}
+    configContent = configContent.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+      return process.env[varName] || '';
+    });
+
+    const parsed = JSON.parse(configContent);
+    
+    // Basic structural validation
+    if (!parsed.outboundDrivers || typeof parsed.outboundDrivers !== 'object') {
+      errors.push('Config must have an "outboundDrivers" object.');
+    }
+    if (!parsed.inboundAdapters || typeof parsed.inboundAdapters !== 'object') {
+      errors.push('Config must have an "inboundAdapters" object.');
+    }
+
+    gatewayConfig = parsed as GatewayConfig;
+  } catch (err: any) {
+    errors.push(`Failed to parse ${configPath}: ${err.message}`);
+  }
+};
+
 export const validateEnv = (): void => {
   const errors: string[] = [];
 
@@ -110,6 +162,8 @@ export const validateEnv = (): void => {
   validateGcpConfig(errors);
   validateAllowlistTables(errors);
   validateAuthProvider(errors);
+  validateDcrPersistenceMode(errors);
+  loadGatewayConfig(errors);
   
   validatePositiveInteger(process.env.MAX_BYTES_BILLED, 'MAX_BYTES_BILLED', errors);
   validatePositiveInteger(process.env.ROW_LIMIT, 'ROW_LIMIT', errors);

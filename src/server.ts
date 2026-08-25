@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { registerClient, authorizeUser, submitLogin, tokenExchange, handleOidcCallback } from './oauth';
-import { handleMcpRequest } from './mcp';
-import { validateEnv } from './config';
+import atlassianRouter from './adapters/atlassian/routes';
+import { validateEnv } from './config/gateway.config';
+import { driverManager } from './core/mcp/driverManager';
 
 // Load environment variables
 dotenv.config();
@@ -16,19 +16,30 @@ const port = process.env.PORT || 3000;
 app.set('trust proxy', true);
 
 // Middleware
-const allowedOrigins = process.env.ALLOWED_CORS_ORIGINS
-  ? process.env.ALLOWED_CORS_ORIGINS.split(',').map(o => o.trim())
-  : ['https://api.atlassian.com', 'http://localhost:3000'];
+app.use(cors((req, callback) => {
+  const allowedOrigins = (process.env.ALLOWED_CORS_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+    
+  const origin = req.header('Origin');
+  const host = req.header('Host');
+  
+  let isAllowed = false;
+  if (!origin) {
+    // Allow requests with no origin (e.g., curl, backend-to-backend)
+    isAllowed = true;
+  } else if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+    isAllowed = true;
+  } else if (host && origin.includes(host)) {
+    // Allow requests where the Origin matches our own Host (e.g., form submissions on the same domain)
+    isAllowed = true;
+  }
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, or backend-to-backend calls)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      return callback(null, true);
-    } else {
-      return callback(new Error('Not allowed by CORS'), false);
-    }
+  if (isAllowed) {
+    callback(null, { origin: true });
+  } else {
+    callback(new Error('Not allowed by CORS'), { origin: false });
   }
 }));
 app.use(express.json());
@@ -42,51 +53,58 @@ app.use((req, res, next) => {
   next();
 });
 
-// Dynamic Client Registration (DCR)
-app.post('/register', registerClient);
+// OAuth 2.0 / OIDC Discovery Endpoints (RFC 8414)
+// Atlassian checks these on the root domain when setting up an external MCP server
+app.get(['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'], (req, res) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}/atlassian`;
+  res.json({
+    issuer: baseUrl,
+    registration_endpoint: `${baseUrl}/register`,
+    authorization_endpoint: `${baseUrl}/oauth/authorize`,
+    token_endpoint: `${baseUrl}/oauth/token`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256', 'plain']
+  });
+});
 
-// OAuth 2.1 Endpoints (Both prefixed and raw to support various client defaults)
-app.get('/oauth/authorize', authorizeUser);
-app.get('/authorize', authorizeUser);
+app.use('/.well-known/oauth-protected-resource', (req, res) => {
+  res.json({
+    authorization_server: `${req.protocol}://${req.get('host')}`
+  });
+});
 
-app.get('/oauth/callback', handleOidcCallback);
-app.get('/callback', handleOidcCallback);
-
-app.post('/oauth/login', submitLogin);
-app.post('/login', submitLogin);
-
-app.post('/oauth/token', tokenExchange);
-app.post('/token', tokenExchange);
-
-// MCP Tool Execution Endpoint (Streamable HTTP Transport - handles both /mcp and root /)
-app.post('/mcp', handleMcpRequest);
-app.post('/', handleMcpRequest);
+// Mount Atlassian Adapter Routes
+app.use('/atlassian', atlassianRouter);
 
 // Simple Health Check
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'Atlassian BigQuery MCP Server' });
+  res.json({ status: 'ok', service: 'Enterprise SaaS-to-MCP Gateway' });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Atlassian BigQuery MCP Server' });
+  res.json({ status: 'ok', service: 'Enterprise SaaS-to-MCP Gateway' });
 });
 
 // Start Server
 if (process.env.NODE_ENV !== 'test') {
-  try {
-    validateEnv();
-  } catch (error: any) {
-    console.error(`[FATAL] Startup validation failed: ${error.message}`);
-    process.exit(1);
-  }
+  (async () => {
+    try {
+      validateEnv();
+      await driverManager.initialize();
+    } catch (error: any) {
+      console.error(`[FATAL] Startup validation/initialization failed: ${error.message}`);
+      process.exit(1);
+    }
 
-  app.listen(port, () => {
-    console.log(`Atlassian BigQuery MCP Server is running at http://localhost:${port}`);
-    console.log(`DCR Endpoint: http://localhost:${port}/register`);
-    console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
-    console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
-    console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
-  });
+    app.listen(port, () => {
+      console.log(`Enterprise SaaS-to-MCP Gateway is running at http://localhost:${port}`);
+      console.log(`DCR Endpoint: http://localhost:${port}/register`);
+      console.log(`OAuth Authorize Endpoint: http://localhost:${port}/oauth/authorize`);
+      console.log(`OAuth Token Endpoint: http://localhost:${port}/oauth/token`);
+      console.log(`MCP Transport Endpoint: http://localhost:${port}/mcp`);
+    });
+  })();
 }
 
 export default app;

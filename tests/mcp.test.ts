@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { validateQuerySafety } from '../src/mcp';
-import * as bigquery from '../src/bigquery';
+import { validateQuerySafety } from '../src/drivers/bigqueryPolicy';
+import * as bigquery from '../src/drivers/bigquery';
 
 describe('validateQuerySafety', () => {
   beforeAll(() => {

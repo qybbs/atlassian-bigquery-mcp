@@ -1,15 +1,16 @@
-# BigQuery MCP Server
+# Enterprise SaaS-to-MCP Gateway
 
-This project implements a stateless, federated Model Context Protocol (MCP) server for Google BigQuery, designed to integrate with Atlassian Rovo and other external MCP clients.
+This project implements a modular, stateless **Enterprise SaaS-to-MCP Gateway** designed to connect enterprise platforms (like Atlassian Rovo) to internal database drivers (initially Google BigQuery) securely, transparently, and with strict query policies.
 
 ## Features
 
-- **Stateless Architecture**: Zero database dependency. Uses JWE/JWS for state management via a single `MASTER_SECRET_KEY`.
-- **Dynamic Client Registration (RFC 7591)**: Supports dynamic registration of MCP clients (e.g., Atlassian Rovo).
-- **OAuth 2.1 Authorization Code Flow**: Implements a secure authorization flow with PKCE, currently utilizing a mock identity layer but architected to be SSO-ready.
-- **BigQuery Integration**: Provides tools for listing datasets, listing tables, getting table schemas, and executing read-only queries safely.
-- **Policy Engine**: Built-in AST-based parsing (simulated with robust regex/denylists) to strictly enforce read-only operations and limit data exfiltration (e.g., `LIMIT 1000`, `maximumBytesBilled`).
-- **HTTP Transport**: Uses modern SSE/HTTP transport for remote MCP communication.
+- **Enterprise SaaS Integration**: Designed as a gateway that bridges external platforms with internal data sources using standard MCP protocol.
+- **Configurable DCR Persistence**: Supports three modes of Dynamic Client Registration (DCR) persistence: `STATELESS` (zero DB dependency via JWE encryption), `MEMORY` (temporary in-memory store), and `FIRESTORE` (production-grade stateful store with Google Cloud Firestore).
+- **Dynamic Client Registration (RFC 7591)**: Supports dynamic registration of MCP clients (e.g., Atlassian Rovo) automatically at runtime.
+- **OAuth 2.1 Authorization Code Flow**: Implements a secure authorization flow with PKCE, utilizing a modular identity layer (Mock / OIDC SSO-ready).
+- **Outbound Drivers**: Bundled with a Google BigQuery driver providing safe schema inspection, cost estimation, and data querying.
+- **Policy Engine**: Centralized safety engine that strips comments, restricts actions to read-only `SELECT` queries, enforces limits (e.g., `LIMIT 1000`, `maximumBytesBilled`), and validates table allowlists.
+- **HTTP Transport**: Uses standard SSE/HTTP transport for remote MCP communications.
 
 ## Repository Layout
 
@@ -17,11 +18,28 @@ This project implements a stateless, federated Model Context Protocol (MCP) serv
 bigquery-mcp/
 ├── src/                    # TypeScript Source Code
 │   ├── server.ts           # Express Application Entry Point
-│   ├── oauth.ts            # DCR, OAuth 2.1, and OIDC Flow Handlers
-│   ├── mcp.ts              # MCP JSON-RPC Server Router & Policy Engine
-│   └── bigquery.ts         # Google BigQuery API Integration & Tools
+│   ├── index.ts            # Entrypoint file for library exports
+│   ├── config/             # Configuration modules
+│   │   └── gateway.config.ts # Environment configuration and validation
+│   ├── core/               # Shared core protocol modules
+│   │   ├── auth/           # OAuth helpers (PKCE, JWE decrypt/encrypt, JWT sign)
+│   │   │   └── helpers.ts
+│   │   ├── logging/        # Centralized audit logging
+│   │   │   └── audit.ts
+│   │   └── mcp/            # Core MCP Policy Engine & stateless JSON-RPC Router
+│   │       ├── policy.ts
+│   │       └── router.ts
+│   ├── drivers/            # Downstream outbound database drivers
+│   │   └── bigquery.ts     # Google BigQuery integration
+│   └── adapters/           # Inbound adapters mapping external platforms to MCP
+│       └── atlassian/      # Atlassian Rovo HTTP/Express adapter (OAuth/MCP endpoints)
+│           ├── mcp.ts
+│           ├── oauth.ts
+│           └── routes.ts
 ├── docs/                   # Documentation files
-│   └── custom-mcp-solutioning.md  # Architectural Decision & Details
+│   ├── custom-mcp-solutioning.md  # Architectural Decision & Details
+│   ├── cloudflare-tunnel-setup.md # Guide to expose local server to Atlassian
+│   └── project-roadmap.md  # Project phases and milestones
 ├── .github/                # GitHub Configurations
 │   └── CODEOWNERS          # Code owners definition
 ├── Dockerfile              # Docker container configuration
@@ -89,6 +107,9 @@ This MCP server exposes the following custom tools to external clients (e.g., At
     PORT=3000
     # Generate a random 32-byte base64 string for this
     MASTER_SECRET_KEY="your-secure-base64-encoded-32-byte-key-here"
+    
+    # DCR Persistence Mode: STATELESS, MEMORY, or FIRESTORE
+    DCR_PERSISTENCE_MODE=STATELESS
     
     # Path to your Google Cloud Service Account JSON key file
     GOOGLE_APPLICATION_CREDENTIALS="./your-service-account-key.json"
@@ -213,7 +234,7 @@ This project includes a GitHub Actions workflow (`.github/workflows/release-dock
 To run the Docker image locally or in production, you must inject the necessary configuration via Environment Variables:
 - **BigQuery Limits**: `MAX_BYTES_BILLED`, `ROW_LIMIT`
 - **Security & Authorization**: `ALLOWED_EMAIL_DOMAINS`, `ALLOWED_REDIRECT_URIS`, `TOKEN_EXPIRATION`, `TOKEN_EXPIRATION_SECONDS`
-- **Authentication Credentials**: `MASTER_SECRET_KEY`, `AUTH_PROVIDER`, and OIDC specific variables.
+- **Authentication & Persistence**: `MASTER_SECRET_KEY`, `AUTH_PROVIDER`, `DCR_PERSISTENCE_MODE` (options: `STATELESS`, `MEMORY`, `FIRESTORE`), and OIDC specific variables.
 
 Example running the container locally:
 ```bash
@@ -245,7 +266,7 @@ gcloud run deploy bigquery-mcp \
 
 The service exposes the following endpoints for liveness and readiness probes in Cloud Run or Kubernetes:
 - `GET /` and `GET /health`
-  Returns `{"status": "ok", "service": "Atlassian BigQuery MCP Server"}` (HTTP 200).
+  Returns `{"status": "ok", "service": "Enterprise SaaS-to-MCP Gateway"}` (HTTP 200).
 
 ## Running the Server
 

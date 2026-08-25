@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as bigquery from '../src/bigquery';
+import * as bigquery from '../src/drivers/bigquery';
 
 // Mock @google-cloud/bigquery
 vi.mock('@google-cloud/bigquery', () => {

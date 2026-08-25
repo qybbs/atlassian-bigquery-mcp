@@ -1,6 +1,6 @@
-# Detail Arsitektur Opsi 2 — Self-hosted BigQuery MCP Server untuk SERSAN Agent
+# Detail Arsitektur Opsi 2 — Enterprise SaaS-to-MCP Gateway untuk SERSAN Agent
 
-Dokumen ini merinci rancangan teknis untuk **Opsi 2**: **self-hosted BigQuery MCP Server** yang dideploy ke Cloud Run agar SERSAN Agent dapat mengeksekusi query BigQuery secara aman, terukur, dan dapat diaudit.
+Dokumen ini merinci rancangan teknis untuk **Opsi 2**: **Enterprise SaaS-to-MCP Gateway** yang dideploy ke Cloud Run agar SERSAN Agent dapat mengeksekusi query BigQuery secara aman, terukur, dan dapat diaudit.
 
 **Tujuan keputusan**
 Menentukan seperti apa desain target Opsi 2 yang cukup aman untuk pilot, tetap ringan untuk dibangun, dan memberi ruang evolusi ke model audit serta identity yang lebih matang.
@@ -432,7 +432,10 @@ sequenceDiagram
 7. MCP Server mengeluarkan *Access Token* berbasis JWT yang berisi identitas email user. Token ini digunakan untuk memanggil endpoint tools `/mcp` berikutnya.
 
 ### 4. Implementasi Stateless Tanpa Database (Zero-Database Architecture)
-Untuk menjaga Cloud Run tetap *stateless* (memungkinkan *scale-to-zero* dan menghemat biaya infrastruktur/database), MCP Server dirancang untuk **tidak membutuhkan database** penyimpanan sesi/client:
+> [!NOTE]
+> **Pembaruan Fase 2**: Gateway saat ini mendukung arsitektur penyimpanan yang modular dan dapat dikonfigurasi melalui parameter `DCR_PERSISTENCE_MODE`. Selain mode default `STATELESS` (yang dijelaskan di bawah ini), Anda juga dapat menggunakan mode `MEMORY` (untuk local testing) atau `FIRESTORE` (untuk database terdistribusi Google Cloud Firestore).
+
+Untuk menjaga Cloud Run tetap *stateless* (memungkinkan *scale-to-zero* dan menghemat biaya infrastruktur/database) bila menggunakan mode `STATELESS`, MCP Server dirancang untuk **tidak membutuhkan database** penyimpanan sesi/client:
 
 * **Stateless Client ID**: Nilai `client_id` yang diterbitkan saat DCR bukanlah ID acak, melainkan token yang dienkripsi dan ditandatangani (*signed*) menggunakan **Master Secret Key** milik server. Token tersebut menyimpan metadata registrasi Atlassian tenant (nama tenant, redirect URIs terdaftar). Saat proses otorisasi, server mendekripsi `client_id` secara lokal untuk memvalidasi legitimasi client Atlassian tanpa perlu mencocokkannya ke database.
 * **Stateless Authorization Code**: Kode otorisasi yang dihasilkan pada `/oauth/authorize` berupa *short-lived encrypted JWT* (berlaku 5 menit) yang menyimpan data `client_id`, email user hasil SSO, dan `code_challenge` (PKCE). Saat pertukaran token di `/oauth/token`, server tinggal memverifikasi tanda tangan JWT, mendekripsi datanya, dan mencocokkan `code_challenge` dengan `code_verifier` yang dikirim Atlassian secara lokal.

@@ -1,8 +1,9 @@
 // Export Express handlers for MCP
-export { handleMcpRequest, validateQuerySafety } from './mcp';
+export { handleMcpRequest } from './adapters/atlassian/mcp';
+export { validateQuerySafety } from './drivers/bigqueryPolicy';
 
 // Export Configuration Validation
-export { validateEnv } from './config';
+export { validateEnv } from './config/gateway.config';
 
 // Export OAuth & DCR handlers
 export { 
@@ -11,7 +12,7 @@ export {
   tokenExchange, 
   handleOidcCallback,
   submitLogin
-} from './oauth';
+} from './adapters/atlassian/oauth';
 
 // Export BigQuery core tools
 export { 
@@ -20,4 +21,4 @@ export {
   estimateQueryCost, 
   executeReadonlyQuery, 
   searchAllowedTables 
-} from './bigquery';
+} from './drivers/bigquery';

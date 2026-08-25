@@ -2,10 +2,23 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import * as jose from 'jose';
 import app from '../src/server';
+import { DcrPersistenceMode } from '../src/core/auth/types';
+import { driverManager } from '../src/core/mcp/driverManager';
+import { McpDriverType } from '../src/core/mcp/driver';
 
 describe('Express Server API', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.MASTER_SECRET_KEY = 'a3N2ZHNkZnNkZmRzZnNkZnNkZmRzZnNkZnNkZnNkZmQ='; // valid base64 32 bytes (mock)
+    process.env.GCP_PROJECT_ID = 'mock-project';
+    process.env.ALLOWLIST_TABLES = 'dataset.mock_table';
+    process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
+    process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
+    process.env.AUTH_PROVIDER = 'MOCK';
+    process.env.MOCK_USER_EMAIL = 'test@example.com';
+    process.env.MOCK_USER_PASSWORD = 'password123';
+    process.env.ALLOWED_CORS_ORIGINS = 'https://api.atlassian.com';
+
+    await driverManager.initialize();
   });
 
   describe('GET /health', () => {
@@ -14,7 +27,7 @@ describe('Express Server API', () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
         status: 'ok',
-        service: 'Atlassian BigQuery MCP Server'
+        service: 'Enterprise SaaS-to-MCP Gateway'
       });
     });
   });
@@ -48,7 +61,7 @@ describe('Express Server API', () => {
   describe('POST /mcp', () => {
     it('harus menolak request tanpa header Authorization', async () => {
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .send({
           jsonrpc: '2.0',
           method: 'tools/list',
@@ -61,7 +74,7 @@ describe('Express Server API', () => {
 
     it('harus menolak request dengan token invalid', async () => {
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', 'Bearer invalid.token.here')
         .send({
           jsonrpc: '2.0',
@@ -82,7 +95,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '1.0',
@@ -103,7 +116,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '2.0',
@@ -124,7 +137,7 @@ describe('Express Server API', () => {
         .sign(secret);
 
       const response = await request(app)
-        .post('/mcp')
+        .post('/atlassian/mcp')
         .set('Authorization', `Bearer ${token}`)
         .send({
           jsonrpc: '2.0',
@@ -134,8 +147,7 @@ describe('Express Server API', () => {
         });
       
       expect(response.status).toBe(404);
-      expect(response.body.error.message).toContain('Method not found: Tool "unknown_tool" is not implemented');
+      expect(response.body.error.message).toContain('Method not found: Tool "unknown_tool" is not registered by any active driver.');
     });
   });
 });
-

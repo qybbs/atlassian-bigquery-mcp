@@ -16,6 +16,7 @@ describe('Express Server API', () => {
     process.env.AUTH_PROVIDER = 'MOCK';
     process.env.MOCK_USER_EMAIL = 'test@example.com';
     process.env.MOCK_USER_PASSWORD = 'password123';
+    process.env.ALLOWED_CORS_ORIGINS = 'https://api.atlassian.com';
 
     await driverManager.initialize();
   });

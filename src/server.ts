@@ -16,12 +16,12 @@ const port = process.env.PORT || 3000;
 app.set('trust proxy', true);
 
 // Middleware
-const allowedOrigins = (process.env.ALLOWED_CORS_ORIGINS || '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
-
 app.use(cors((req, callback) => {
+  const allowedOrigins = (process.env.ALLOWED_CORS_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+    
   const origin = req.header('Origin');
   const host = req.header('Host');
   

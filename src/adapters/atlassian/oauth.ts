@@ -35,7 +35,7 @@ export const registerClient = async (req: express.Request, res: express.Response
     const client = await clientRepository.register(client_name, redirect_uris);
 
     const driverName = req.params.driverName;
-    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName)) {
+    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName as string)) {
       return res.status(400).json({ error: 'invalid_request', error_description: 'Invalid driverName format' });
     }
     const prefix = driverName ? `/${driverName}` : '';
@@ -96,7 +96,7 @@ export const authorizeUser = async (req: express.Request, res: express.Response)
     }
 
     const driverName = req.params.driverName;
-    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName)) {
+    if (driverName && !/^[a-zA-Z0-9_-]+$/.test(driverName as string)) {
       return res.status(400).send('Invalid driverName format');
     }
     const prefix = driverName ? `/${driverName}` : '';

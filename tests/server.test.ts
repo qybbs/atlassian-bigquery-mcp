@@ -13,6 +13,9 @@ describe('Express Server API', () => {
     process.env.ALLOWLIST_TABLES = 'dataset.mock_table';
     process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
     process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
+    process.env.AUTH_PROVIDER = 'MOCK';
+    process.env.MOCK_USER_EMAIL = 'test@example.com';
+    process.env.MOCK_USER_PASSWORD = 'password123';
 
     await driverManager.initialize();
   });

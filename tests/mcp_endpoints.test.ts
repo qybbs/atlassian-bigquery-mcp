@@ -72,6 +72,9 @@ describe('MCP Transport Endpoint (POST /mcp)', () => {
     process.env.ALLOWLIST_TABLES = 'dataset1.table1,project2.dataset2.table2';
     process.env.DCR_PERSISTENCE_MODE = DcrPersistenceMode.STATELESS;
     process.env.ACTIVE_DRIVERS = McpDriverType.BIGQUERY;
+    process.env.AUTH_PROVIDER = 'MOCK';
+    process.env.MOCK_USER_EMAIL = 'test@example.com';
+    process.env.MOCK_USER_PASSWORD = 'password123';
 
     await driverManager.initialize();
 

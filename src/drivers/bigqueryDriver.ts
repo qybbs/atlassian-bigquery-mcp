@@ -126,7 +126,7 @@ export class BigQueryDriver implements McpDriver {
         const { keyword } = args;
         if (!keyword) throw new Error('keyword is required.');
         const result = await searchAllowedTables(keyword);
-        (result as any)._audit = { rowCount: result.length };
+        (result as any)._audit = { rowCount: 'matchedCount' in result ? result.matchedCount : 0 };
         return result;
       }
 

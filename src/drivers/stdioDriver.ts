@@ -16,7 +16,7 @@ export class StdioDriver implements McpDriver {
   // This will store the cached tools from the downstream server
   private cachedTools: any[] | null = null;
 
-  constructor(config: { name: string; prefix: string; command: string; args?: string[]; env?: Record<string, string> }) {
+  constructor(config: { name: string; prefix: string; command: string; args?: string[]; env?: Record<string, string | undefined> }) {
     this.name = config.name;
     this.prefix = config.prefix;
     this.command = config.command;

@@ -1,6 +1,6 @@
 // Export Express handlers for MCP
 export { handleMcpRequest } from './adapters/atlassian/mcp';
-export { validateQuerySafety } from './core/mcp/policy';
+export { validateQuerySafety } from './drivers/bigqueryPolicy';
 
 // Export Configuration Validation
 export { validateEnv } from './config/gateway.config';

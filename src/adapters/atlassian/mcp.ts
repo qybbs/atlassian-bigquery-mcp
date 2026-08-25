@@ -32,7 +32,7 @@ export const handleMcpRequest = async (req: express.Request, res: express.Respon
   }
 
   // Allow list for scoping outbound calls
-  const allowedDrivers = pathDriverName ? [pathDriverName] : (tokenDriverName ? [tokenDriverName] : undefined);
+  const allowedDrivers = pathDriverName ? [pathDriverName as string] : (tokenDriverName ? [tokenDriverName as string] : undefined);
 
   const { jsonrpc, id, method, params } = req.body;
 

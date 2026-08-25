@@ -120,8 +120,12 @@ const validateDcrPersistenceMode = (errors: string[]) => {
 };
 
 const loadGatewayConfig = (errors: string[]) => {
-  const configPath = process.env.GATEWAY_CONFIG_PATH || path.join(process.cwd(), 'gateway-mcp-config.json');
+  let configPath = process.env.GATEWAY_CONFIG_PATH || path.join(process.cwd(), 'gateway-mcp-config.json');
   
+  if (!fs.existsSync(configPath) && process.env.NODE_ENV === 'test') {
+    configPath = path.join(process.cwd(), 'gateway-mcp-config.example.json');
+  }
+
   if (!fs.existsSync(configPath)) {
     errors.push(`Gateway configuration file not found at ${configPath}. Please create one (see gateway-mcp-config.example.json).`);
     return;
